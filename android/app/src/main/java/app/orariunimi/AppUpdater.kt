@@ -16,8 +16,11 @@ data class AppRelease(
     val version: String,
     val tag: String,
     val downloadUrl: String,
-    val sha256: String?
-)
+    val sha256: String?,
+    val versionCode: Int? = null
+) {
+    val updateKey: String get() = versionCode?.let { "$version:$it" } ?: version
+}
 
 sealed interface AppUpdateState {
     data object Idle : AppUpdateState
@@ -54,8 +57,13 @@ object AppUpdater {
         }
         val digest = asset.optString("digest").takeIf { it.startsWith("sha256:") }
             ?.removePrefix("sha256:")?.lowercase()
-        return AppRelease(version, tag, downloadUrl, digest)
+        val versionCode = parseReleaseVersionCode(json.optString("body"))
+        return AppRelease(version, tag, downloadUrl, digest, versionCode)
     }
+
+    fun isNewer(release: AppRelease, currentVersion: String, currentVersionCode: Int): Boolean =
+        release.versionCode?.let { it > currentVersionCode }
+            ?: isNewer(release.version, currentVersion)
 
     fun isNewer(latest: String, current: String): Boolean {
         val latestParts = numericVersion(latest) ?: return false
@@ -151,14 +159,24 @@ object AppUpdater {
         return value.split('.').map { it.toIntOrNull() ?: return null }
     }
 
+    internal fun parseReleaseVersionCode(body: String): Int? {
+        val marker = Regex("<!--\\s*orari-unimi-version-code:\\s*(\\d+)\\s*-->", RegexOption.IGNORE_CASE)
+            .find(body)?.groupValues?.getOrNull(1)?.toIntOrNull()
+        if (marker != null) return marker
+        return Regex("\\bversionCode\\s*[:=]?\\s*`?(\\d+)`?", RegexOption.IGNORE_CASE)
+            .find(body)?.groupValues?.getOrNull(1)?.toIntOrNull()
+    }
+
     private fun get(url: String, maxBytes: Int): ByteArray {
         val connection = URL(url).openConnection() as HttpURLConnection
         try {
             connection.connectTimeout = 20_000
             connection.readTimeout = 20_000
+            connection.useCaches = false
             connection.setRequestProperty("User-Agent", "orari-unimi-android/${BuildConfig.VERSION_NAME}")
             connection.setRequestProperty("Accept", "application/vnd.github+json")
             connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
+            connection.setRequestProperty("Cache-Control", "no-cache")
             if (connection.responseCode !in 200..299) {
                 throw IllegalStateException("GitHub ha risposto ${connection.responseCode}.")
             }

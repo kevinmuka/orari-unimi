@@ -1,8 +1,6 @@
 package app.orariunimi
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -12,7 +10,6 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
@@ -22,7 +19,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -114,8 +110,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import java.time.Instant
 import java.io.File
@@ -123,6 +119,7 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.YearMonth
 import java.time.ZoneId
+import java.time.DayOfWeek
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
@@ -150,31 +147,37 @@ fun SearchScreen(
 ) {
     val focusManager = LocalFocusManager.current
     var yearMenu by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
-            Text("Trova il tuo orario", style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(5.dp))
-            Text("Lezioni pubblicate dall’Università degli Studi di Milano.",
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            Column(Modifier.fillMaxWidth()) {
+            AppScreenHeader(
+                title = "Esplora",
+                subtitle = "Trova corsi, docenti e insegnamenti pubblicati da UNIMI."
+            )
             Spacer(Modifier.height(18.dp))
-            Box {
+            Text("ANNO ACCADEMICO", style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            Box(Modifier.padding(top = 6.dp)) {
                 OutlinedButton(
                     onClick = { yearMenu = !yearMenu },
                     enabled = years.isNotEmpty(),
-                    modifier = Modifier.width(172.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp)
                 ) {
                     Icon(Icons.Outlined.CalendarMonth, contentDescription = null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(year?.name ?: "Anno accademico")
-                    Spacer(Modifier.width(6.dp))
+                    Text(year?.name ?: "Anno accademico", Modifier.weight(1f),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Start)
                     Icon(if (yearMenu) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
                         contentDescription = if (yearMenu) "Chiudi elenco anni" else "Apri elenco anni",
                         modifier = Modifier.size(18.dp))
                 }
                 DropdownMenu(expanded = yearMenu, onDismissRequest = { yearMenu = false },
-                    modifier = Modifier.width(172.dp)) {
+                    modifier = Modifier.fillMaxWidth(0.88f)) {
                     years.forEach { option ->
                         DropdownMenuItem(
                             text = { Text(option.name) },
@@ -186,19 +189,12 @@ fun SearchScreen(
                     }
                 }
             }
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SearchKind.entries.forEach { option ->
-                    FilterChip(selected = kind == option, onClick = { onKind(option) }, label = { Text(option.label) },
-                        leadingIcon = if (kind == option) {{
-                            Icon(when (option) {
-                                SearchKind.COURSE -> Icons.Outlined.School
-                                SearchKind.TEACHER -> Icons.Outlined.PersonOutline
-                                SearchKind.SUBJECT -> Icons.AutoMirrored.Outlined.MenuBook
-                            }, contentDescription = null, Modifier.size(18.dp))
-                        }} else null)
-                }
-            }
+            AppSegmentedControl(
+                options = SearchKind.entries.map { it.label },
+                selectedIndex = SearchKind.entries.indexOf(kind),
+                onSelected = { onKind(SearchKind.entries[it]) },
+                modifier = Modifier.padding(top = 14.dp)
+            )
             Spacer(Modifier.height(10.dp))
             OutlinedTextField(
                 value = query, onValueChange = onQuery, modifier = Modifier.fillMaxWidth(),
@@ -215,24 +211,28 @@ fun SearchScreen(
                     else "${results.size} ${if (results.size == 1) "risultato" else "risultati"}",
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            }
         }
         when {
-            loadingYears || loadingEntries -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                androidx.compose.material3.CircularProgressIndicator()
-            }
-            year == null -> EmptyPanel("Nessun anno disponibile", "Controlla la connessione e riprova.",
-                action = "Riprova", onAction = onRetryYears)
-            query.isBlank() -> EmptyPanel("Inizia a cercare", "Scrivi il nome o il codice di un ${kind.subtitle.lowercase(italian)}.")
-            results == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                androidx.compose.material3.CircularProgressIndicator()
-            }
-            results.isEmpty() -> EmptyPanel("Nessun risultato", "Prova con un nome diverso o con il codice.",
-                action = "Ricarica elenco", onAction = onRetryEntries)
-            else -> LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+            loadingYears || loadingEntries -> item { Box(
+                Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center
             ) {
+                androidx.compose.material3.CircularProgressIndicator()
+            } }
+            year == null -> item { AppEmptyState("Nessun anno disponibile",
+                "Controlla la connessione e riprova.", action = "Riprova", onAction = onRetryYears) }
+            query.isBlank() -> item { AppEmptyState("Inizia a cercare",
+                "Scrivi il nome o il codice di un ${kind.subtitle.lowercase(italian)}.",
+                icon = Icons.Outlined.Search) }
+            results == null -> item { Box(
+                Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center
+            ) {
+                androidx.compose.material3.CircularProgressIndicator()
+            } }
+            results.isEmpty() -> item { AppEmptyState("Nessun risultato",
+                "Prova con un nome diverso o con il codice.", action = "Ricarica elenco",
+                onAction = onRetryEntries, icon = Icons.Outlined.Search) }
+            else -> {
                 items(results, key = { item -> "${item.kind}:${item.code}" }) { item ->
                     SearchResultCard(item,
                         favorite = favorites.any { it.year == year.code && it.code == item.code },
@@ -247,6 +247,18 @@ fun SearchScreen(
 @Composable
 private fun SearchResultCard(item: SearchItem, favorite: Boolean, onClick: () -> Unit,
                              onToggleFavorite: () -> Unit) {
+    if (item.kind == SearchKind.COURSE) {
+        DegreeCourseCard(
+            course = item,
+            favorite = favorite,
+            onClick = onClick,
+            onToggleFavorite = onToggleFavorite,
+            favoriteDescription = if (favorite) "Rimuovi ${item.name} dai salvati"
+                else "Salva ${item.name}",
+            showChevron = false
+        )
+        return
+    }
     val palette = item.degreeType?.let { degreePalette(it) }
     Card(
         onClick = onClick, shape = RoundedCornerShape(20.dp),
@@ -275,18 +287,14 @@ private fun SearchResultCard(item: SearchItem, favorite: Boolean, onClick: () ->
                         color = palette?.content ?: MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            if (item.kind == SearchKind.COURSE) IconButton(onClick = onToggleFavorite) {
-                Icon(if (favorite) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
-                    contentDescription = if (favorite) "Rimuovi ${item.name} dai preferiti"
-                        else "Salva ${item.name} nei preferiti", tint = palette?.accent ?: MaterialTheme.colorScheme.primary)
-            } else Icon(Icons.Outlined.ChevronRight, contentDescription = null,
+            Icon(Icons.Outlined.ChevronRight, contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
 @Composable
-fun SavedScreen(
+fun LessonsScreen(
     saved: List<SavedSubject>,
     personalLessons: List<Lesson>?, loadingPersonal: Boolean,
     onOpen: (SavedSubject) -> Unit, onCombined: () -> Unit,
@@ -307,19 +315,13 @@ fun SavedScreen(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("I miei orari", Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold)
-                if (saved.isNotEmpty()) Surface(shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    IconButton(onClick = onAgenda, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Outlined.ViewAgenda, contentDescription = "Apri vista agenda")
-                    }
-                }
-            }
-            Spacer(Modifier.height(5.dp))
-            Text("I tuoi insegnamenti, raccolti in un unico calendario.",
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            AppScreenHeader(
+                title = "Lezioni",
+                subtitle = "I tuoi insegnamenti, raccolti in un unico calendario.",
+                actionIcon = Icons.Outlined.ViewAgenda.takeIf { saved.isNotEmpty() },
+                actionDescription = "Apri vista agenda",
+                onAction = onAgenda.takeIf { saved.isNotEmpty() }
+            )
         }
         if (saved.isNotEmpty()) item {
             Spacer(Modifier.height(6.dp))
@@ -330,7 +332,7 @@ fun SavedScreen(
             Button(onClick = onCombined, enabled = saved.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Outlined.CalendarMonth, contentDescription = null, Modifier.size(19.dp))
                 Spacer(Modifier.width(9.dp))
-                Text("Apri calendario personale")
+                Text("Apri calendario delle lezioni")
             }
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = onAdd, modifier = Modifier.fillMaxWidth()) {
@@ -680,58 +682,12 @@ private enum class AgendaRange { DAY, WEEK }
 
 @Composable
 private fun AgendaRangeSelector(range: AgendaRange, onRange: (AgendaRange) -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow
-    ) {
-        BoxWithConstraints(Modifier.padding(4.dp)) {
-            val segmentWidth = maxWidth / 2
-            val indicatorOffset by animateDpAsState(
-                targetValue = if (range == AgendaRange.DAY) 0.dp else segmentWidth,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                ),
-                label = "agenda-range-indicator"
-            )
-            Box(
-                Modifier.offset { IntOffset(indicatorOffset.roundToPx(), 0) }
-                    .width(segmentWidth).height(42.dp)
-                    .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(14.dp))
-            )
-            Row(Modifier.fillMaxWidth()) {
-                AgendaRangeOption("Giorno", range == AgendaRange.DAY, Modifier.weight(1f)) {
-                    onRange(AgendaRange.DAY)
-                }
-                AgendaRangeOption("Settimana", range == AgendaRange.WEEK, Modifier.weight(1f)) {
-                    onRange(AgendaRange.WEEK)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AgendaRangeOption(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val contentColor by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-            else MaterialTheme.colorScheme.onSurfaceVariant,
-        animationSpec = tween(180),
-        label = "agenda-range-label"
+    AppSegmentedControl(
+        options = listOf("Giorno", "Settimana"),
+        selectedIndex = if (range == AgendaRange.DAY) 0 else 1,
+        onSelected = { onRange(if (it == 0) AgendaRange.DAY else AgendaRange.WEEK) },
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp)
     )
-    Box(
-        modifier.height(42.dp).clickable(
-            interactionSource = interactionSource,
-            indication = null,
-            onClick = onClick
-        ),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(label, style = MaterialTheme.typography.labelLarge, color = contentColor,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
-    }
 }
 
 @Composable
@@ -817,7 +773,7 @@ fun SettingsScreen(
             Text("DATI E PRIVACY", style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(9.dp))
-            Text("Gli orari arrivano dal portale pubblico UNIMI. Insegnamenti, corsi preferiti e preferenze rimangono solo sul telefono.",
+            Text("Gli orari arrivano dal portale pubblico UNIMI. Insegnamenti, corsi salvati e preferenze rimangono solo sul telefono.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -987,7 +943,7 @@ private fun UpdateSettingCard(
                     Text("Hai già la versione più recente.", style = MaterialTheme.typography.bodyMedium)
                 }
                 is AppUpdateState.Available -> {
-                    Text("È disponibile la versione ${state.release.version}.",
+                    Text("È disponibile la versione ${state.release.displayVersion(currentVersion)}.",
                         style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
                     Text("L'APK sarà scaricato dalla release ufficiale e verificato prima dell'installazione.",
@@ -1000,14 +956,14 @@ private fun UpdateSettingCard(
                     }
                 }
                 is AppUpdateState.Downloading -> {
-                    Text("Download della versione ${state.release.version}…",
+                    Text("Download della versione ${state.release.displayVersion(currentVersion)}…",
                         style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(10.dp))
                     if (state.progress == null) LinearProgressIndicator(Modifier.fillMaxWidth())
                     else LinearProgressIndicator(progress = { state.progress }, modifier = Modifier.fillMaxWidth())
                 }
                 is AppUpdateState.Ready -> {
-                    Text("Versione ${state.release.version} pronta per l'installazione.",
+                    Text("Versione ${state.release.displayVersion(currentVersion)} pronta per l'installazione.",
                         style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
                     Text("Android ti chiederà di confermare l'aggiornamento.",
@@ -1029,6 +985,9 @@ private fun UpdateSettingCard(
         }
     }
 }
+
+private fun AppRelease.displayVersion(currentVersion: String): String =
+    if (version == currentVersion && versionCode != null) "$version (build $versionCode)" else version
 
 @Composable
 private fun SettingCard(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, description: String,
@@ -1060,18 +1019,12 @@ fun CalendarScreen(
     calendar: CalendarData, week: LocalDate, selectedDay: LocalDate, weekend: Boolean,
     savedSubjects: List<SavedSubject>, onToggleSubject: (Lesson) -> Unit,
     refreshing: Boolean, onRefresh: () -> Unit,
-    onMoveWeek: (Long) -> Unit, onSelectDay: (LocalDate) -> Unit
+    onMoveWeek: (Long) -> Unit, onSelectDay: (LocalDate) -> Unit,
+    onOpenMonth: () -> Unit
 ) {
-    var showMonth by remember { mutableStateOf(false) }
-    if (showMonth) MonthCalendarDialog(
-        selectedDay = selectedDay,
-        lessons = calendar.lessons,
-        onDismiss = { showMonth = false },
-        onSelectDay = { day -> onSelectDay(day); showMonth = false }
-    )
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 9.dp)) {
-            WeekHeader(week, onMoveWeek, onOpenMonth = { showMonth = true })
+            WeekHeader(week, onMoveWeek, onOpenMonth = onOpenMonth)
             Spacer(Modifier.height(14.dp))
             AnimatedContent(
                 targetState = week,
@@ -1259,98 +1212,204 @@ private fun WeekHeader(week: LocalDate, onMoveWeek: (Long) -> Unit, onOpenMonth:
 }
 
 @Composable
-private fun MonthCalendarDialog(
-    selectedDay: LocalDate,
+fun LessonMonthScreen(
     lessons: List<Lesson>,
-    onDismiss: () -> Unit,
-    onSelectDay: (LocalDate) -> Unit
+    initialDay: LocalDate,
+    weekend: Boolean,
+    onOpenDay: (LocalDate) -> Unit
 ) {
-    var month by remember(selectedDay) { mutableStateOf(YearMonth.from(selectedDay)) }
+    val today = LocalDate.now()
+    var month by remember(initialDay) { mutableStateOf(YearMonth.from(initialDay)) }
+    var selectedDay by remember(initialDay, weekend) { mutableStateOf(openingDay(initialDay, weekend)) }
     var drag by remember(month) { mutableFloatStateOf(0f) }
-    val lessonDays = remember(lessons) { lessons.groupingBy { it.date }.eachCount() }
+    val lessonsByDay = remember(lessons) {
+        lessons.groupBy { it.date }.mapValues { (_, items) -> items.sortedBy { it.start } }
+    }
+    val selectedLessons = lessonsByDay[selectedDay].orEmpty()
     val monthTitle = remember(month) {
         month.format(DateTimeFormatter.ofPattern("MMMM yyyy", italian))
             .replaceFirstChar { it.titlecase(italian) }
     }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
+    fun moveMonth(amount: Long) {
+        val target = month.plusMonths(amount)
+        selectedDay = openingDay(
+            target.atDay(selectedDay.dayOfMonth.coerceAtMost(target.lengthOfMonth())), weekend)
+        month = target
+    }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 30.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { month = month.minusMonths(1) }) {
+                Column(Modifier.weight(1f)) {
+                    Text(monthTitle, style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold)
+                    Text("Calendario delle lezioni", style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                TextButton(onClick = {
+                    selectedDay = openingDay(today, weekend)
+                    month = YearMonth.from(selectedDay)
+                }) { Text("Oggi") }
+                IconButton(onClick = { moveMonth(-1) }) {
                     Icon(Icons.Outlined.ChevronLeft, "Mese precedente")
                 }
-                Text(monthTitle, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                IconButton(onClick = { month = month.plusMonths(1) }) {
+                IconButton(onClick = { moveMonth(1) }) {
                     Icon(Icons.Outlined.ChevronRight, "Mese successivo")
                 }
             }
-        },
-        text = {
-            Column(Modifier.fillMaxWidth().pointerInput(month) {
-                detectHorizontalDragGestures(
-                    onHorizontalDrag = { change, amount -> drag += amount; change.consume() },
-                    onDragEnd = {
-                        if (drag > 70f) month = month.minusMonths(1)
-                        else if (drag < -70f) month = month.plusMonths(1)
-                        drag = 0f
+        }
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth().pointerInput(month) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { drag = 0f },
+                        onHorizontalDrag = { change, amount -> drag += amount; change.consume() },
+                        onDragCancel = { drag = 0f },
+                        onDragEnd = {
+                            if (drag > 70f) moveMonth(-1) else if (drag < -70f) moveMonth(1)
+                            drag = 0f
+                        }
+                    )
+                },
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow
+            ) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp)) {
+                    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(13.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                            val labels = if (weekend) listOf("LUN", "MAR", "MER", "GIO", "VEN", "SAB", "DOM")
+                                else listOf("LUN", "MAR", "MER", "GIO", "VEN")
+                            labels.forEach { label ->
+                                Box(Modifier.weight(1f).height(30.dp), contentAlignment = Alignment.Center) {
+                                    Text(label, style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
                     }
-                )
-            }) {
-                Row(Modifier.fillMaxWidth()) {
-                    listOf("L", "M", "M", "G", "V", "S", "D").forEach { label ->
-                        Box(Modifier.weight(1f).height(30.dp), contentAlignment = Alignment.Center) {
-                            Text(label, style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    AnimatedContent(
+                        targetState = month,
+                        transitionSpec = {
+                            val forward = targetState.isAfter(initialState)
+                            (slideInHorizontally(tween(240, easing = FastOutSlowInEasing)) {
+                                if (forward) it / 4 else -it / 4
+                            } + fadeIn(tween(180))).togetherWith(
+                                slideOutHorizontally(tween(210, easing = FastOutSlowInEasing)) {
+                                    if (forward) -it / 4 else it / 4
+                                } + fadeOut(tween(140))
+                            )
+                        },
+                        label = "lesson-month"
+                    ) { displayedMonth ->
+                        Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                            val columns = if (weekend) 7 else 5
+                            lessonMonthDates(displayedMonth, weekend).chunked(columns).forEach { row ->
+                                Row(Modifier.fillMaxWidth()) {
+                                    row.forEach { day ->
+                                        LessonMonthDay(day, YearMonth.from(day) == displayedMonth,
+                                            day == selectedDay, day == today,
+                                            lessonsByDay[day].orEmpty().size) {
+                                            selectedDay = it
+                                            month = YearMonth.from(it)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
-                monthDates(month).chunked(7).forEach { row ->
-                    Row(Modifier.fillMaxWidth()) {
-                        row.forEach { day -> MonthDay(day, selectedDay, lessonDays[day] ?: 0, onSelectDay) }
-                    }
-                }
             }
-        },
-        dismissButton = {
-            TextButton(onClick = { onSelectDay(LocalDate.now()) }) { Text("Oggi") }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Chiudi") } }
-    )
-}
-
-@Composable
-private fun RowScope.MonthDay(
-    day: LocalDate?, selectedDay: LocalDate, lessonCount: Int, onSelectDay: (LocalDate) -> Unit
-) {
-    if (day == null) {
-        Spacer(Modifier.weight(1f).height(42.dp))
-        return
-    }
-    val selected = day == selectedDay
-    Surface(
-        onClick = { onSelectDay(day) },
-        shape = CircleShape,
-        color = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
-        modifier = Modifier.weight(1f).height(42.dp)
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Text(day.dayOfMonth.toString(), style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
-            Box(Modifier.size(4.dp).background(if (lessonCount > 0) {
-                if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary
-            } else Color.Transparent, CircleShape))
+        }
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(selectedDay.format(dateLong).replaceFirstChar { it.titlecase(italian) },
+                        style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text(if (selectedLessons.isEmpty()) "Nessuna lezione" else
+                        "${selectedLessons.size} ${if (selectedLessons.size == 1) "lezione" else "lezioni"}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                FilledTonalButton(onClick = { onOpenDay(selectedDay) }) { Text("Apri giornata") }
+            }
+        }
+        if (selectedLessons.isEmpty()) item {
+            EmptyCard("Nessuna lezione in questo giorno", "Scegli un’altra data nel calendario.")
+        } else items(selectedLessons, key = { "month:${it.id}:${it.subjectCode}:${it.start}" }) { lesson ->
+            LessonCard(lesson, saved = false, onToggleSave = null)
         }
     }
 }
 
-fun monthDates(month: YearMonth): List<LocalDate?> {
-    val leading = month.atDay(1).dayOfWeek.value - 1
-    return List(42) { index ->
-        val day = index - leading + 1
-        if (day in 1..month.lengthOfMonth()) month.atDay(day) else null
+@Composable
+private fun RowScope.LessonMonthDay(
+    day: LocalDate,
+    inCurrentMonth: Boolean,
+    selected: Boolean,
+    today: Boolean,
+    count: Int,
+    onSelect: (LocalDate) -> Unit
+) {
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val indicatorOffset by animateDpAsState(
+        targetValue = if (selected || today) 24.dp else 17.dp,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "lesson-day-indicator-offset"
+    )
+    Box(
+        modifier = Modifier.weight(1f).height(56.dp).clickable(
+            interactionSource = interactionSource, indication = null, onClick = { onSelect(day) }
+        ),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = when {
+                selected -> MaterialTheme.colorScheme.primary
+                today -> MaterialTheme.colorScheme.primaryContainer
+                else -> Color.Transparent
+            },
+            modifier = Modifier.size(34.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(day.dayOfMonth.toString(), style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (selected || today) FontWeight.Bold else FontWeight.Normal,
+                    color = when {
+                        selected -> MaterialTheme.colorScheme.onPrimary
+                        !inCurrentMonth -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
+                        today -> MaterialTheme.colorScheme.onPrimaryContainer
+                        else -> MaterialTheme.colorScheme.onSurface
+                    })
+            }
+        }
+        if (count > 0) Row(Modifier.align(Alignment.Center)
+            .offset { IntOffset(0, indicatorOffset.roundToPx()) },
+            horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            repeat(count.coerceAtMost(3)) {
+                Box(Modifier.size(4.dp).background(
+                    when {
+                        selected -> MaterialTheme.colorScheme.onPrimary
+                        !inCurrentMonth -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                        else -> MaterialTheme.colorScheme.primary
+                    },
+                    CircleShape))
+            }
+        }
     }
+}
+
+internal fun lessonMonthDates(month: YearMonth, weekend: Boolean = true): List<LocalDate> {
+    val first = month.atDay(1)
+    val leadingDays = first.dayOfWeek.value - 1
+    val start = first.minusDays(leadingDays.toLong())
+    val rows = if (leadingDays + month.lengthOfMonth() <= 35) 5 else 6
+    val dates = List(rows * 7) { start.plusDays(it.toLong()) }
+    return if (weekend) dates else dates.filter { it.dayOfWeek.value <= DayOfWeek.FRIDAY.value }
 }
 
 @Composable
@@ -1451,27 +1510,13 @@ fun ErrorBanner(message: String, onDismiss: () -> Unit, onRetry: (() -> Unit)? =
 @Composable
 private fun EmptyPanel(title: String, description: String, action: String? = null, onAction: (() -> Unit)? = null) {
     Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = CircleShape,
-                modifier = Modifier.size(64.dp)) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Outlined.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(30.dp))
-                }
-            }
-            Spacer(Modifier.height(15.dp))
-            Text(title, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            Spacer(Modifier.height(5.dp))
-            Text(description, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            if (action != null && onAction != null) {
-                Spacer(Modifier.height(14.dp))
-                FilledTonalButton(onClick = onAction) { Text(action) }
-            }
-        }
+        AppEmptyState(
+            title = title,
+            message = description,
+            action = action,
+            onAction = onAction,
+            icon = Icons.Outlined.Search
+        )
     }
 }
 

@@ -35,6 +35,32 @@ data class ExamAppeal(
 
 data class ExamSnapshot(val appeals: List<ExamAppeal>, val updatedAtMillis: Long)
 
+internal fun mergeSubjectExamSnapshots(
+    subject: FollowedExamSubject,
+    snapshots: List<Pair<ExamSubjectSource, ExamSnapshot>>
+): ExamSnapshot? {
+    if (snapshots.isEmpty()) return null
+    val appeals = snapshots.flatMap { (source, snapshot) ->
+        snapshot.appeals.filter { appeal -> examAppealMatches(subject, source, appeal) }
+    }.distinctBy { it.courseCode to it.id }.sortedWith(
+        compareBy<ExamAppeal> { it.date }.thenBy { it.time.ifBlank { "99:99" } }
+            .thenBy { it.subjectName }
+    )
+    return ExamSnapshot(appeals, snapshots.minOf { it.second.updatedAtMillis })
+}
+
+internal fun examAppealMatches(
+    subject: FollowedExamSubject,
+    source: ExamSubjectSource,
+    appeal: ExamAppeal
+): Boolean {
+    if (!appeal.courseCode.equals(source.courseCode, ignoreCase = true)) return false
+    val sourceCode = source.examSubjectCode.trim()
+    if (appeal.subjectCode.equals(sourceCode, ignoreCase = true) ||
+        appeal.subjectPortalCode.equals(sourceCode, ignoreCase = true)) return true
+    return appeal.subjectName.trim().equals(subject.name.trim(), ignoreCase = true)
+}
+
 class ExamApi(
     private val baseUrl: String = "https://work.unimi.it/foProssimiEsami/json/",
     private val cache: ResponseCache? = null

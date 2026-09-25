@@ -19,4 +19,19 @@ class AppUpdaterTest {
         assertFalse(AppUpdater.isNewer("2.0", "2.0.0"))
         assertFalse(AppUpdater.isNewer("not-a-version", "1.0.0"))
     }
+
+    @Test
+    fun prefersVersionCodeWhenReleaseProvidesIt() {
+        val sameVersionNewBuild = AppRelease("1.6.6", "android-v1.6.6", "https://example.test/app.apk", null, 24)
+        assertTrue(AppUpdater.isNewer(sameVersionNewBuild, "1.6.6", 23))
+        assertFalse(AppUpdater.isNewer(sameVersionNewBuild, "1.6.6", 24))
+    }
+
+    @Test
+    fun parsesVersionCodeFromCanonicalMarkerOrHumanText() {
+        assertTrue(AppUpdater.parseReleaseVersionCode(
+            "<!-- orari-unimi-version-code: 24 -->") == 24)
+        assertTrue(AppUpdater.parseReleaseVersionCode("Build Android con versionCode `25`") == 25)
+        assertTrue(AppUpdater.parseReleaseVersionCode("Nessun codice build") == null)
+    }
 }

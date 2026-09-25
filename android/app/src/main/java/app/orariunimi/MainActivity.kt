@@ -19,7 +19,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             OrariTheme {
                 OrariApp(
-                    initialTab = if (intent.getBooleanExtra(OPEN_SAVED, false)) 1 else 0,
+                    initialTab = 0,
                     openSavedRequest = openSavedRequest.intValue,
                     openNotificationsRequest = openNotificationsRequest.intValue
                 )

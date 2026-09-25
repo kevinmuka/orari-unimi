@@ -1,16 +1,13 @@
 package app.orariunimi
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -64,6 +61,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -79,16 +77,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
@@ -98,13 +96,24 @@ import java.time.format.FormatStyle
 import java.text.Normalizer
 import java.util.Locale
 
+enum class ExamHomeSection(val label: String) {
+    SEARCH("Cerca"), FOLLOWED("Seguiti")
+}
+
 @Composable
 fun ExamsScreen(
     courses: List<SearchItem>?,
-    favorites: List<FavoriteCourse>,
+    academicYear: String,
+    section: ExamHomeSection,
     query: String,
     results: List<SearchItem>?,
-    selectedCourse: SearchItem?,
+    followedQuery: String,
+    followedResults: List<SearchItem>?,
+    lessonSubjects: List<FollowedExamSubject>,
+    manualSubjects: List<FollowedExamSubject>,
+    selectedItem: SearchItem?,
+    selectedSubjectFromLessons: Boolean,
+    selectedSubjectManual: Boolean,
     window: ExamWindow,
     appeals: List<ExamAppeal>?,
     updatedAtMillis: Long?,
@@ -115,52 +124,81 @@ fun ExamsScreen(
     savedAppeals: List<ExamAppeal>,
     appealsWithNotes: Set<Pair<String, String>>,
     onQuery: (String) -> Unit,
+    onFollowedQuery: (String) -> Unit,
+    onSection: (ExamHomeSection) -> Unit,
     onSelectCourse: (SearchItem) -> Unit,
+    onSelectSubject: (FollowedExamSubject) -> Unit,
+    onToggleManualSubject: (SearchItem) -> Unit,
+    onRemoveManualSubject: (FollowedExamSubject) -> Unit,
     onWindow: (ExamWindow) -> Unit,
     onRefresh: () -> Unit,
     onRetryCourses: () -> Unit,
+    onRetrySubjects: () -> Unit,
     onOpenPlanner: () -> Unit,
     onOpenAppeal: (ExamAppeal) -> Unit,
     onToggleSavedAppeal: (ExamAppeal) -> Unit,
     onAddToCalendar: (ExamAppeal) -> Unit
 ) {
-    if (selectedCourse == null) {
-        ExamCoursePicker(courses, favorites, query, results, loadingCourses, onQuery,
-            onSelectCourse, onRetryCourses, onOpenPlanner)
+    if (selectedItem == null) {
+        Column(Modifier.fillMaxSize()) {
+            ExamHomeHeader(
+                section = section,
+                onSection = onSection,
+                onOpenPlanner = onOpenPlanner,
+                savedCount = savedAppeals.size,
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 12.dp)
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceContainerHigh)
+            AnimatedContent(
+                targetState = section,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                transitionSpec = {
+                    val forward = targetState.ordinal > initialState.ordinal
+                    (slideInHorizontally(tween(240, easing = FastOutSlowInEasing)) {
+                        if (forward) it / 5 else -it / 5
+                    } + fadeIn(tween(170))).togetherWith(
+                        slideOutHorizontally(tween(210, easing = FastOutSlowInEasing)) {
+                            if (forward) -it / 5 else it / 5
+                        } + fadeOut(tween(130))
+                    )
+                },
+                label = "exam-home-section"
+            ) { shownSection ->
+                when (shownSection) {
+                    ExamHomeSection.SEARCH -> ExamCoursePicker(courses, query, results, loadingCourses,
+                        onQuery, onSelectCourse, onRetryCourses)
+                    ExamHomeSection.FOLLOWED -> FollowedExamSubjectsScreen(
+                        academicYear, followedQuery, followedResults, lessonSubjects, manualSubjects,
+                        loadingCourses, onFollowedQuery, onSelectSubject, onToggleManualSubject,
+                        onRemoveManualSubject, onRetrySubjects)
+                }
+            }
+        }
     } else {
-        ExamAppealsList(selectedCourse, window, appeals, updatedAtMillis, offline, errorMessage, refreshing,
-            savedAppeals, appealsWithNotes, onWindow, onRefresh, onOpenPlanner,
+        ExamAppealsList(selectedItem, window, appeals, updatedAtMillis, offline, errorMessage, refreshing,
+            savedAppeals, appealsWithNotes,
+            followedFromLessons = selectedSubjectFromLessons,
+            followedManually = selectedSubjectManual,
+            onToggleFollowed = if (selectedItem.kind == SearchKind.SUBJECT && !selectedSubjectFromLessons) {
+                { onToggleManualSubject(selectedItem) }
+            } else null,
+            onWindow, onRefresh, onOpenPlanner,
             onOpenAppeal, onToggleSavedAppeal, onAddToCalendar)
     }
 }
 
 @Composable
 private fun ExamCoursePicker(
-    courses: List<SearchItem>?, favorites: List<FavoriteCourse>, query: String,
+    courses: List<SearchItem>?, query: String,
     results: List<SearchItem>?, loading: Boolean, onQuery: (String) -> Unit,
-    onSelect: (SearchItem) -> Unit, onRetry: () -> Unit, onOpenPlanner: () -> Unit
+    onSelect: (SearchItem) -> Unit, onRetry: () -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 30.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 30.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Appelli", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                    Text("Consulta date, aule e iscrizioni degli esami pubblicati da UNIMI.",
-                        Modifier.padding(top = 5.dp), style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Surface(shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    IconButton(onClick = onOpenPlanner, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Outlined.CalendarMonth, contentDescription = "Apri i miei appelli")
-                    }
-                }
-            }
-            Spacer(Modifier.height(18.dp))
             OutlinedTextField(
                 value = query,
                 onValueChange = onQuery,
@@ -175,21 +213,6 @@ private fun ExamCoursePicker(
                     }
                 }} else null
             )
-        }
-
-        if (query.isBlank() && favorites.isNotEmpty()) {
-            item {
-                Text("CORSI PREFERITI", Modifier.padding(top = 10.dp, bottom = 2.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.Bold)
-            }
-            items(favorites, key = { "favorite:${it.year}:${it.code}" }) { favorite ->
-                val item = courses?.firstOrNull { it.code == favorite.code }
-                    ?: SearchItem(favorite.code, favorite.name, SearchKind.COURSE,
-                        degreeType = favorite.degreeType)
-                ExamCourseCard(item, favorite = true, onClick = { onSelect(item) })
-            }
         }
 
         when {
@@ -216,39 +239,191 @@ private fun ExamCoursePicker(
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 items(results.orEmpty(), key = { "result:${it.code}" }) { course ->
-                    ExamCourseCard(course,
-                        favorite = favorites.any { it.code == course.code },
-                        onClick = { onSelect(course) })
+                    DegreeCourseCard(course,
+                        favorite = false,
+                        onClick = { onSelect(course) },
+                        showChevron = true)
                 }
             }
-            favorites.isEmpty() && !loading -> item {
-                ExamEmptyPanel("Scegli il tuo corso", "Cerca un corso di laurea per vedere gli appelli programmati.")
+            query.isBlank() && !loading -> item {
+                AppEmptyState(
+                    title = "Cerca un corso",
+                    message = "Scrivi il nome o il codice del corso di laurea per vedere gli appelli programmati.",
+                    icon = Icons.Outlined.Search
+                )
             }
         }
     }
 }
 
 @Composable
-private fun ExamCourseCard(course: SearchItem, favorite: Boolean, onClick: () -> Unit) {
-    val palette = degreePalette(course.degreeType ?: DegreeType.OTHER)
-    Card(onClick = onClick, shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = palette.container)) {
-        Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
-                modifier = Modifier.size(44.dp)) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Outlined.School, contentDescription = null, tint = palette.accent)
+private fun ExamHomeHeader(
+    section: ExamHomeSection,
+    onSection: (ExamHomeSection) -> Unit,
+    onOpenPlanner: () -> Unit,
+    savedCount: Int,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier) {
+        AppScreenHeader(
+            title = "Appelli",
+            subtitle = "Cerca gli esami e tieni sotto controllo quelli che vuoi sostenere.",
+            actionIcon = Icons.Outlined.CalendarMonth,
+            actionDescription = if (savedCount == 0) "Apri calendario appelli"
+                else "Apri calendario con $savedCount appelli salvati",
+            onAction = onOpenPlanner
+        )
+        AppSegmentedControl(
+            options = ExamHomeSection.entries.map { it.label },
+            selectedIndex = ExamHomeSection.entries.indexOf(section),
+            onSelected = { onSection(ExamHomeSection.entries[it]) },
+            modifier = Modifier.padding(top = 16.dp)
+        )
+    }
+}
+
+@Composable
+private fun FollowedExamSubjectsScreen(
+    academicYear: String,
+    query: String,
+    results: List<SearchItem>?,
+    lessonSubjects: List<FollowedExamSubject>,
+    manualSubjects: List<FollowedExamSubject>,
+    loading: Boolean,
+    onQuery: (String) -> Unit,
+    onSelect: (FollowedExamSubject) -> Unit,
+    onToggleManual: (SearchItem) -> Unit,
+    onRemoveManual: (FollowedExamSubject) -> Unit,
+    onRetry: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 30.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQuery,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(18.dp),
+                label = { Text("Aggiungi un insegnamento") },
+                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                trailingIcon = if (query.isNotEmpty()) {{
+                    IconButton(onClick = { onQuery("") }) {
+                        Icon(Icons.Outlined.Close, contentDescription = "Cancella ricerca")
+                    }
+                }} else null
+            )
+        }
+        if (query.isNotBlank()) {
+            when {
+                loading || results == null -> item {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 34.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                }
+                results.isEmpty() -> item {
+                    ExamEmptyPanel("Nessun insegnamento trovato",
+                        "Prova con il nome o il codice dell’insegnamento.", "Riprova", onRetry)
+                }
+                else -> {
+                    item { ExamSectionLabel("RISULTATI") }
+                    items(results, key = { "subject-result:${it.code}" }) { item ->
+                        val fromLessons = lessonSubjects.any { it.year == academicYear && it.code == item.code }
+                        val manual = manualSubjects.any { it.year == academicYear && it.code == item.code }
+                        ExamSubjectCard(
+                            name = item.name,
+                            code = item.code,
+                            supporting = when {
+                                fromLessons -> "Già presente nei tuoi orari"
+                                manual -> "Aggiunto agli appelli seguiti"
+                                else -> "Aggiungi agli appelli seguiti"
+                            },
+                            bookmarked = fromLessons || manual,
+                            onClick = if (fromLessons || manual) {{
+                                val subject = (lessonSubjects + manualSubjects).first {
+                                    it.year == academicYear && it.code == item.code
+                                }
+                                onSelect(subject)
+                            }} else {{ onToggleManual(item) }},
+                            onBookmark = if (fromLessons) null else {{ onToggleManual(item) }}
+                        )
+                    }
                 }
             }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(course.name, style = MaterialTheme.typography.titleMedium, color = palette.content,
-                    fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(listOf(course.code, course.degreeType?.label).filterNotNull().joinToString(" · "),
-                    style = MaterialTheme.typography.labelMedium, color = palette.content.copy(alpha = 0.78f))
+            return@LazyColumn
+        }
+        if (lessonSubjects.isEmpty() && manualSubjects.isEmpty()) {
+            item {
+                AppEmptyState(
+                    title = "Nessun insegnamento seguito",
+                    message = "Gli insegnamenti salvati in Lezioni appariranno qui. Puoi aggiungerne altri dalla ricerca qui sopra.",
+                    icon = Icons.Outlined.School
+                )
             }
-            if (favorite) Icon(Icons.Outlined.Bookmark, contentDescription = "Corso preferito",
-                tint = palette.accent, modifier = Modifier.size(21.dp))
+        } else {
+            if (lessonSubjects.isNotEmpty()) {
+                item { ExamSectionLabel("DAI TUOI ORARI") }
+                items(lessonSubjects, key = { "lesson-subject:${it.year}:${it.code}" }) { followed ->
+                    ExamSubjectCard(followed.name, followed.code, "Salvato in Lezioni", true,
+                        onClick = { onSelect(followed) })
+                }
+            }
+            if (manualSubjects.isNotEmpty()) {
+                item { ExamSectionLabel("AGGIUNTI PER GLI APPELLI") }
+                items(manualSubjects, key = { "manual-subject:${it.year}:${it.code}" }) { followed ->
+                    ExamSubjectCard(followed.name, followed.code, yearLabel(followed.year), true,
+                        onClick = { onSelect(followed) }, onBookmark = { onRemoveManual(followed) })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExamSectionLabel(text: String) {
+    Text(text, Modifier.padding(start = 2.dp, top = 8.dp),
+        style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.primary)
+}
+
+@Composable
+private fun ExamSubjectCard(
+    name: String,
+    code: String,
+    supporting: String,
+    bookmarked: Boolean,
+    onClick: () -> Unit,
+    onBookmark: (() -> Unit)? = null
+) {
+    Card(onClick = onClick, shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 5.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.size(44.dp)) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Outlined.EventAvailable, contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                }
+            }
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(listOf(code, supporting).filter { it.isNotBlank() }.joinToString(" · "),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            if (onBookmark != null) IconButton(onClick = onBookmark) {
+                Icon(if (bookmarked) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+                    contentDescription = if (bookmarked) "Rimuovi dagli appelli seguiti"
+                        else "Aggiungi agli appelli seguiti")
+            } else Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 10.dp))
         }
     }
 }
@@ -258,6 +433,7 @@ private fun ExamAppealsList(
     course: SearchItem, window: ExamWindow, appeals: List<ExamAppeal>?, updatedAtMillis: Long?,
     offline: Boolean, errorMessage: String?, refreshing: Boolean, savedAppeals: List<ExamAppeal>,
     appealsWithNotes: Set<Pair<String, String>>,
+    followedFromLessons: Boolean, followedManually: Boolean, onToggleFollowed: (() -> Unit)?,
     onWindow: (ExamWindow) -> Unit, onRefresh: () -> Unit, onOpenPlanner: () -> Unit,
     onOpenAppeal: (ExamAppeal) -> Unit,
     onToggleSavedAppeal: (ExamAppeal) -> Unit,
@@ -280,18 +456,35 @@ private fun ExamAppealsList(
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f)) {
-                    DegreeBadge(course.degreeType ?: DegreeType.OTHER)
+                    if (course.kind == SearchKind.COURSE) {
+                        DegreeBadge(course.degreeType ?: DegreeType.OTHER)
+                    } else {
+                        Surface(color = MaterialTheme.colorScheme.secondaryContainer,
+                            shape = RoundedCornerShape(8.dp)) {
+                            Text(if (followedFromLessons) "Dai tuoi orari" else "Insegnamento seguito",
+                                Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                fontWeight = FontWeight.Bold)
+                        }
+                    }
                     Text(course.name, Modifier.padding(top = 9.dp),
                         style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
                         maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(course.code, style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Surface(shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    IconButton(onClick = onOpenPlanner, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Outlined.CalendarMonth, contentDescription = "Apri i miei appelli")
-                    }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (onToggleFollowed != null) AppSurfaceIconButton(
+                        icon = if (followedManually) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+                        contentDescription = if (followedManually) "Non seguire più questo insegnamento"
+                            else "Segui questo insegnamento",
+                        onClick = onToggleFollowed)
+                    AppSurfaceIconButton(
+                        icon = Icons.Outlined.CalendarMonth,
+                        contentDescription = "Apri i promemoria degli appelli",
+                        onClick = onOpenPlanner
+                    )
                 }
             }
             ExamWindowSelector(window, onWindow, Modifier.padding(top = 14.dp))
@@ -387,67 +580,12 @@ private fun ExamWindowSelector(
     modifier: Modifier = Modifier
 ) {
     val options = ExamWindow.entries
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow
-    ) {
-        BoxWithConstraints(Modifier.padding(4.dp)) {
-            val segmentWidth = maxWidth / options.size
-            val selectedIndex = options.indexOf(window).coerceAtLeast(0)
-            val indicatorOffset by animateDpAsState(
-                targetValue = segmentWidth * selectedIndex,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                ),
-                label = "exam-window-indicator"
-            )
-            Box(
-                Modifier.offset { IntOffset(indicatorOffset.roundToPx(), 0) }
-                    .width(segmentWidth)
-                    .height(42.dp)
-                    .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(14.dp))
-            )
-            Row(Modifier.fillMaxWidth()) {
-                options.forEach { option ->
-                    ExamWindowOption(
-                        label = option.label,
-                        selected = option == window,
-                        modifier = Modifier.weight(1f),
-                        onClick = { onWindow(option) }
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ExamWindowOption(
-    label: String,
-    selected: Boolean,
-    modifier: Modifier,
-    onClick: () -> Unit
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val contentColor by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-            else MaterialTheme.colorScheme.onSurfaceVariant,
-        animationSpec = tween(180),
-        label = "exam-window-label"
+    AppSegmentedControl(
+        options = options.map { it.label },
+        selectedIndex = options.indexOf(window),
+        onSelected = { onWindow(options[it]) },
+        modifier = modifier
     )
-    Box(
-        modifier.height(42.dp).clickable(
-            interactionSource = interactionSource,
-            indication = null,
-            onClick = onClick
-        ),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(label, style = MaterialTheme.typography.labelLarge, color = contentColor,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
-    }
 }
 
 @Composable
@@ -501,12 +639,13 @@ fun ExamPlannerScreen(
     appealsWithNotes: Set<Pair<String, String>>,
     showSaved: Boolean,
     onShowSaved: (Boolean) -> Unit,
+    showModeSelector: Boolean = true,
+    embedded: Boolean = false,
     onSelectAppeal: (ExamAppeal) -> Unit
 ) {
     val today = LocalDate.now()
     var month by remember { mutableStateOf(YearMonth.from(today)) }
     var selectedDay by remember { mutableStateOf(today) }
-    val mode = if (showSaved) ExamPlannerMode.SAVED else ExamPlannerMode.CALENDAR
     var drag by remember(month) { mutableFloatStateOf(0f) }
     val appealsByDay = remember(savedAppeals) {
         savedAppeals.groupBy { it.date }.mapValues { (_, items) ->
@@ -532,17 +671,17 @@ fun ExamPlannerScreen(
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 30.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item {
+        if (!showSaved || !embedded) item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(if (mode == ExamPlannerMode.CALENDAR) monthTitle else "Appelli salvati",
+                    Text(if (!showSaved) monthTitle else "Appelli salvati",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold)
                     Text("${savedAppeals.size} ${if (savedAppeals.size == 1) "appello salvato" else "appelli salvati"}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (mode == ExamPlannerMode.CALENDAR) {
+                if (!showSaved) {
                     TextButton(onClick = {
                         month = YearMonth.from(today)
                         selectedDay = today
@@ -556,8 +695,14 @@ fun ExamPlannerScreen(
                 }
             }
         }
-        item { ExamPlannerModeSelector(mode, onMode = { onShowSaved(it == ExamPlannerMode.SAVED) }) }
-        if (mode == ExamPlannerMode.CALENDAR) item {
+        if (showModeSelector) item {
+            AppSegmentedControl(
+                options = listOf("Calendario", "Salvati"),
+                selectedIndex = if (showSaved) 1 else 0,
+                onSelected = { onShowSaved(it == 1) }
+            )
+        }
+        if (!showSaved) item {
             Surface(
                 modifier = Modifier.fillMaxWidth().pointerInput(month) {
                 detectHorizontalDragGestures(
@@ -630,7 +775,7 @@ fun ExamPlannerScreen(
                 }
             }
         }
-        if (mode == ExamPlannerMode.CALENDAR) item {
+        if (!showSaved) item {
             Column {
                 Text(formatExamDate(selectedDay), style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold)
@@ -640,13 +785,13 @@ fun ExamPlannerScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        if (mode == ExamPlannerMode.CALENDAR && selectedAppeals.isEmpty()) item {
+        if (!showSaved && selectedAppeals.isEmpty()) item {
             ExamEmptyPanel(
                 if (savedAppeals.isEmpty()) "Nessun appello salvato" else "Giornata libera",
                 if (savedAppeals.isEmpty()) "Salva un appello con il segnalibro per ritrovarlo nel calendario."
                 else "Non hai appelli salvati per questa data."
             )
-        } else if (mode == ExamPlannerMode.CALENDAR) items(
+        } else if (!showSaved) items(
             selectedAppeals,
             key = { "planner:${it.courseCode}:${it.id}" }
         ) { appeal ->
@@ -656,12 +801,12 @@ fun ExamPlannerScreen(
                 onClick = { onSelectAppeal(appeal) }
             )
         }
-        if (mode == ExamPlannerMode.SAVED && savedAppeals.isEmpty()) item {
+        if (showSaved && savedAppeals.isEmpty()) item {
             ExamEmptyPanel(
                 "Nessun appello salvato",
                 "Salva un appello con il segnalibro per ritrovarlo qui e nel calendario."
             )
-        } else if (mode == ExamPlannerMode.SAVED) savedGroups.forEach { (date, appeals) ->
+        } else if (showSaved) savedGroups.forEach { (date, appeals) ->
             item(key = "saved-date:$date") {
                 Text(formatExamDate(date), Modifier.padding(top = 5.dp),
                     style = MaterialTheme.typography.titleMedium,
@@ -674,50 +819,6 @@ fun ExamPlannerScreen(
                     hasNote = (appeal.courseCode to appeal.id) in appealsWithNotes,
                     onClick = { onSelectAppeal(appeal) }
                 )
-            }
-        }
-    }
-}
-
-private enum class ExamPlannerMode(val label: String) {
-    CALENDAR("Calendario"),
-    SAVED("Salvati")
-}
-
-@Composable
-private fun ExamPlannerModeSelector(mode: ExamPlannerMode, onMode: (ExamPlannerMode) -> Unit) {
-    val options = ExamPlannerMode.entries
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow
-    ) {
-        BoxWithConstraints(Modifier.padding(4.dp)) {
-            val segmentWidth = maxWidth / options.size
-            val selectedIndex = options.indexOf(mode).coerceAtLeast(0)
-            val indicatorOffset by animateDpAsState(
-                targetValue = segmentWidth * selectedIndex,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                ),
-                label = "exam-planner-mode-indicator"
-            )
-            Box(
-                Modifier.offset { IntOffset(indicatorOffset.roundToPx(), 0) }
-                    .width(segmentWidth)
-                    .height(42.dp)
-                    .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(14.dp))
-            )
-            Row(Modifier.fillMaxWidth()) {
-                options.forEach { option ->
-                    ExamWindowOption(
-                        label = option.label,
-                        selected = option == mode,
-                        modifier = Modifier.weight(1f),
-                        onClick = { onMode(option) }
-                    )
-                }
             }
         }
     }
@@ -768,7 +869,8 @@ private fun RowScope.ExamPlannerDay(
         }
         if (count > 0) {
             Row(
-                modifier = Modifier.align(Alignment.Center).offset(y = indicatorOffset),
+                modifier = Modifier.align(Alignment.Center)
+                    .offset { IntOffset(0, indicatorOffset.roundToPx()) },
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 repeat(count.coerceAtMost(3)) {
@@ -1078,18 +1180,13 @@ private fun RegistrationBadge(appeal: ExamAppeal) {
 
 @Composable
 private fun ExamEmptyPanel(title: String, message: String, action: String? = null, onAction: () -> Unit = {}) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 36.dp, horizontal = 14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(Icons.Outlined.EventAvailable, contentDescription = null, modifier = Modifier.size(38.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(title, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold)
-        Text(message, Modifier.padding(top = 5.dp), style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (action != null) OutlinedButton(onClick = onAction, modifier = Modifier.padding(top = 14.dp)) {
-            Text(action)
-        }
-    }
+    AppEmptyState(
+        title = title,
+        message = message,
+        action = action,
+        onAction = onAction.takeIf { action != null },
+        icon = Icons.Outlined.EventAvailable
+    )
 }
 
 private val examLocale = Locale.ITALIAN

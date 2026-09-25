@@ -6,6 +6,7 @@ import java.nio.file.Files
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.YearMonth
+import java.time.DayOfWeek
 
 class ScheduleTest {
     @Test fun portalDegreeLabelsHaveDistinctTypes() {
@@ -48,11 +49,49 @@ class ScheduleTest {
         assertEquals("Unico", completed.coursePaths.single().name)
     }
 
-    @Test fun monthGridStartsOnMondayAndContainsSixWeeks() {
-        val dates = monthDates(YearMonth.of(2026, 9))
-        assertEquals(42, dates.size)
+    @Test fun monthGridStartsOnMondayAndUsesOnlyNeededWeeks() {
+        val dates = lessonMonthDates(YearMonth.of(2026, 9))
+        assertEquals(35, dates.size)
+        assertEquals(LocalDate.of(2026, 8, 31), dates.first())
         assertEquals(LocalDate.of(2026, 9, 1), dates[1])
         assertEquals(LocalDate.of(2026, 9, 30), dates[30])
+        assertEquals(LocalDate.of(2026, 10, 4), dates.last())
+    }
+
+    @Test fun lessonMonthGridHidesWeekendsWhenDisabled() {
+        val dates = lessonMonthDates(YearMonth.of(2026, 9), weekend = false)
+        assertEquals(25, dates.size)
+        assertEquals(true, dates.all { it.dayOfWeek.value <= DayOfWeek.FRIDAY.value })
+    }
+
+    @Test fun combinedSubjectCodeLinksSchedulesToExamEndpoint() {
+        assertEquals(ExamSubjectSource("FBA", "FBA-91"), examSubjectSource("FBA^FBA-0^FBA-91"))
+        assertEquals(null, examSubjectSource("broken"))
+    }
+
+    @Test fun subjectCatalogMergesExamSourcesForTheSameTeaching() {
+        val body = """[
+            {"valore":"ECFBA-91_1","label":"Affective Computing","codice_combinato":"FBA^FBA-0^FBA-91"},
+            {"valore":"ECFBA-91_1","label":"Affective Computing","codice_combinato":"FAA^FAA-0^FAA-91"}
+        ]""".trimIndent()
+        val subjects = UnimiApi(transport = { _, _, _ -> "var elenco_attivita = $body;" })
+            .entries(SearchKind.SUBJECT, "2026")
+        assertEquals(1, subjects.size)
+        assertEquals(listOf(
+            ExamSubjectSource("FBA", "FBA-91"),
+            ExamSubjectSource("FAA", "FAA-91")
+        ), subjects.single().examSources)
+    }
+
+    @Test fun followedSubjectOnlyKeepsItsAppealsFromEachCourse() {
+        val subject = FollowedExamSubject("2026", "ECFBA-91_1", "Affective Computing",
+            listOf(ExamSubjectSource("FBA", "FBA-91")))
+        val matching = ExamAppeal("1", "FBA", "Informatica", "FBA-91", "", "Affective Computing",
+            LocalDate.of(2026, 9, 22), "09:00", "", "", "", "", "", "", null, null)
+        val other = matching.copy(id = "2", subjectCode = "FBA-92", subjectName = "Altro")
+        val merged = mergeSubjectExamSnapshots(subject, listOf(
+            ExamSubjectSource("FBA", "FBA-91") to ExamSnapshot(listOf(matching, other), 100L)))
+        assertEquals(listOf(matching), merged?.appeals)
     }
 
     @Test fun responseCacheExpiresAndPrunesOldEntries() {

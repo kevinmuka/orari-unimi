@@ -86,3 +86,18 @@ Android espone tre canali separati: variazioni, promemoria e aggiornamenti.
 Quello delle variazioni usa l'importanza normale; promemoria e aggiornamenti
 sono creati silenziosi. Le impostazioni di sistema possono comunque cambiare
 visibilità, suono e priorità di ciascun canale.
+
+## Versione visibile e build Android
+
+Il controllo aggiornamenti confronta prima il `versionCode` pubblicato nella
+descrizione della release e usa il `versionName` soltanto come compatibilità con
+le release più vecchie. In questo modo una nuova build può mantenere lo stesso
+numero visibile ed essere comunque rilevata. La descrizione GitHub deve contenere
+il marcatore seguente, aggiornato allo stesso valore di `app/build.gradle.kts`:
+
+```html
+<!-- orari-unimi-version-code: 24 -->
+```
+
+La deduplicazione delle notifiche usa la coppia `versionName:versionCode`, quindi
+due build diverse della stessa versione possono generare due avvisi distinti.

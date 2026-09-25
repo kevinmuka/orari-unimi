@@ -28,6 +28,7 @@ enum class DegreeType(val label: String) {
 data class CourseTeaching(val code: String, val name: String, val teacher: String)
 data class CoursePath(val code: String, val name: String, val teachings: List<CourseTeaching>)
 data class CourseTeachingCandidate(val combinedCode: String, val teaching: CourseTeaching)
+data class ExamSubjectSource(val courseCode: String, val examSubjectCode: String)
 
 data class SearchItem(
     val code: String,
@@ -35,11 +36,18 @@ data class SearchItem(
     val kind: SearchKind,
     val paths: List<String> = emptyList(),
     val degreeType: DegreeType? = null,
-    val coursePaths: List<CoursePath> = emptyList()
+    val coursePaths: List<CoursePath> = emptyList(),
+    val examSources: List<ExamSubjectSource> = emptyList()
 )
 
 data class SavedSubject(val year: String, val code: String, val name: String)
 data class FavoriteCourse(val year: String, val code: String, val name: String, val degreeType: DegreeType)
+data class FollowedExamSubject(
+    val year: String,
+    val code: String,
+    val name: String,
+    val sources: List<ExamSubjectSource>
+)
 
 data class NotificationPreferences(
     val enabled: Boolean = false,

@@ -302,14 +302,17 @@ class AppUpdateNotificationWorker(context: Context, parameters: WorkerParameters
         val preferences = store.notificationPreferences
         if (!preferences.enabled || !preferences.appUpdates) return Result.success()
         val release = try { AppUpdater.latestRelease() } catch (_: Exception) { return Result.retry() }
-        if (!AppUpdater.isNewer(release.version, BuildConfig.VERSION_NAME) ||
-            store.lastUpdateNotificationVersion == release.version) return Result.success()
+        if (!AppUpdater.isNewer(release, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE) ||
+            store.lastUpdateNotificationVersion == release.updateKey) return Result.success()
+        val sameVisibleVersion = release.version == BuildConfig.VERSION_NAME
         val entry = AppNotificationEntry(
-            id = "update-${release.version}", type = AppNotificationType.APP_UPDATE,
-            title = "Aggiornamento disponibile", message = "È disponibile Orari UNIMI ${release.version}.",
+            id = "update-${release.updateKey}", type = AppNotificationType.APP_UPDATE,
+            title = "Aggiornamento disponibile",
+            message = if (sameVisibleVersion) "È disponibile una nuova build di Orari UNIMI ${release.version}."
+                else "È disponibile Orari UNIMI ${release.version}.",
             timestampMillis = System.currentTimeMillis()
         )
-        store.lastUpdateNotificationVersion = release.version
+        store.lastUpdateNotificationVersion = release.updateKey
         if (store.addNotification(entry)) {
             NotificationPublisher.post(applicationContext, entry, allowSystemNotification)
         }

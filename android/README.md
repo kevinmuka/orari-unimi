@@ -5,7 +5,7 @@ Usa gli stessi endpoint pubblici AgendaWeb del client Go: ricerca per corso,
 docente o insegnamento, calendario settimanale, insegnamenti salvati e calendario
 personale aggregato. I corsi di laurea sono distinti per tipo con colore ed
 etichetta; aprendo un corso si vedono gli insegnamenti di ogni percorso e si può
-salvare il corso nei Preferiti. Dal calendario di un corso o docente si può
+salvare il corso nella raccolta Salvati. Dal calendario di un corso o docente si può
 aggiungere direttamente un insegnamento ai propri orari. La visibilità del
 weekend si sceglie nelle Preferenze e resta salvata.
 Dal calendario settimanale si può aprire la vista mensile, scorrere tra i mesi e
@@ -18,10 +18,13 @@ consente di passare al giorno precedente o successivo.
 La sezione Appelli consulta gli esami pubblicati per ogni corso di laurea e li
 raggruppa per data. Si possono vedere gli appelli di oggi, dei prossimi 30 giorni
 o tutti quelli programmati, controllare aula, docente, tipo di prova e periodo
-di iscrizione e aggiungere un appello al calendario Android. I corsi preferiti
-sono disponibili come accesso rapido e la stessa sezione si apre direttamente
-dalla pagina di un corso. “I miei appelli” combina un calendario mensile con una
-lista cronologica dei promemoria salvati; ogni appello può avere una nota locale,
+di iscrizione e aggiungere un appello al calendario Android. La sezione Appelli
+separa la ricerca per corso dagli insegnamenti seguiti. Gli insegnamenti salvati
+in Lezioni compaiono automaticamente; se ne possono aggiungere altri soltanto
+per gli esami, mantenendo visibili le due origini. I corsi di laurea salvati
+restano invece nel tab Preferiti. La stessa sezione si apre direttamente dalla
+pagina di un corso. L'icona calendario nell'intestazione apre il calendario
+mensile e la lista cronologica degli appelli salvati; ogni appello può avere una nota locale,
 visibile e rimovibile dal relativo pannello di dettaglio. Origine dei dati,
 cache e limiti sono descritti in
 [docs/EXAMS.md](docs/EXAMS.md).
@@ -29,7 +32,9 @@ Nelle Preferenze l'app controlla le release pubblicate su GitHub e, quando è
 disponibile una versione più recente, può scaricare e verificare l'APK prima di
 aprire l'installer di sistema. Android richiede sempre la conferma dell'utente
 per completare l'aggiornamento; dopo l'installazione l'APK scaricato viene
-eliminato automaticamente dalla cache dell'app.
+eliminato automaticamente dalla cache dell'app. Se una release mantiene lo
+stesso numero visibile, un `versionCode` superiore nella descrizione GitHub la
+rende comunque rilevabile come nuova build.
 Le notifiche sono interamente facoltative e configurabili nelle Preferenze.
 Possono segnalare variazioni importanti degli orari, ricordare in modo
 silenzioso la prossima lezione e avvisare silenziosamente delle nuove versioni.
@@ -42,8 +47,8 @@ Se il record di un corso non elenca ancora gli insegnamenti, l'app cerca quelli
 associati al suo codice nell'elenco generale pubblicato dal portale per lo
 stesso anno accademico.
 
-La ricerca, gli orari e gli appelli richiedono una connessione Internet. Insegnamenti, corsi
-preferiti e preferenze sono memorizzati solo nell'app sul dispositivo; non si
+La ricerca, gli orari e gli appelli richiedono una connessione Internet. Insegnamenti,
+corsi salvati e preferenze sono memorizzati solo nell'app sul dispositivo; non si
 sincronizzano automaticamente con la versione per terminale.
 I calendari già scaricati vengono mostrati subito e aggiornati in background
 quando l'ultima risposta ha più di due minuti; il refresh manuale forza sempre
@@ -56,6 +61,10 @@ offline. Anche gli appelli vengono conservati per un massimo di 24 ore come
 ripiego offline. I cataloghi restano validi per 12 ore e possono essere recuperati fino
 a sette giorni in caso di errore del portale. La cache è limitata a 8 MB ed è
 gestita automaticamente da Android.
+
+La struttura delle destinazioni, i componenti condivisi e le funzioni da
+preservare nei prossimi interventi sono descritti in
+[docs/UX_ARCHITECTURE.md](docs/UX_ARCHITECTURE.md).
 
 ## Compilazione
 

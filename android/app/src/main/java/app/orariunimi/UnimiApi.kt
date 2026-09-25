@@ -12,6 +12,14 @@ import java.time.format.DateTimeFormatter
 
 data class ScheduleSnapshot(val lessons: List<Lesson>, val updatedAtMillis: Long)
 
+internal fun examSubjectSource(combinedCode: String): ExamSubjectSource? {
+    val parts = combinedCode.split('^')
+    val courseCode = parts.getOrNull(0)?.trim().orEmpty()
+    val examSubjectCode = parts.getOrNull(2)?.trim().orEmpty()
+    return if (courseCode.isBlank() || examSubjectCode.isBlank()) null
+    else ExamSubjectSource(courseCode, examSubjectCode)
+}
+
 /** The same public AgendaWeb endpoints and response fields used by the Go client. */
 class UnimiApi(
     private val baseUrl: String = "https://orari-be.divsi.unimi.it/AgendaWeb/Orario/",
@@ -50,7 +58,7 @@ class UnimiApi(
             SearchKind.SUBJECT -> "attivita" to "elenco_attivita"
         }
         val values = combo(year, page, variable) as JSONArray
-        return (0 until values.length()).mapNotNull { index ->
+        val parsed = (0 until values.length()).mapNotNull { index ->
             val value = values.optJSONObject(index) ?: return@mapNotNull null
             val code = value.optString("valore")
             val name = when (kind) {
@@ -77,8 +85,18 @@ class UnimiApi(
             }.orEmpty()
             SearchItem(code, repair(name), kind, coursePaths.map { it.code },
                 if (kind == SearchKind.COURSE) DegreeType.fromPortal(value.optString("tipo")) else null,
-                coursePaths)
+                coursePaths,
+                examSources = if (kind == SearchKind.SUBJECT) {
+                    examSubjectSource(value.optString("codice_combinato"))?.let(::listOf).orEmpty()
+                } else emptyList())
         }
+        if (kind != SearchKind.SUBJECT) return parsed
+        return parsed.groupBy { it.code }.values.map { copies ->
+            copies.first().copy(
+                name = copies.firstNotNullOfOrNull { it.name.takeIf(String::isNotBlank) }.orEmpty(),
+                examSources = copies.flatMap { it.examSources }.distinct()
+            )
+        }.sortedBy { it.name }
     }
 
     fun courseWithTeachings(year: String, course: SearchItem): SearchItem {

@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CalendarMonth
@@ -70,6 +71,64 @@ fun DegreeBadge(type: DegreeType) {
 }
 
 @Composable
+fun DegreeCourseCard(
+    course: SearchItem,
+    favorite: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    supportingText: String = listOf(course.code, course.degreeType?.label)
+        .filterNotNull().filter { it.isNotBlank() }.joinToString(" · "),
+    onToggleFavorite: (() -> Unit)? = null,
+    favoriteDescription: String? = null,
+    showChevron: Boolean = false
+) {
+    val palette = degreePalette(course.degreeType ?: DegreeType.OTHER)
+    Card(
+        onClick = onClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = palette.container)
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 15.dp, top = 12.dp, bottom = 12.dp, end = 5.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
+                modifier = Modifier.size(44.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Outlined.School, contentDescription = null, tint = palette.accent,
+                        modifier = Modifier.size(24.dp))
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(course.name, style = MaterialTheme.typography.titleMedium,
+                    color = palette.content, fontWeight = FontWeight.SemiBold,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (supportingText.isNotBlank()) Text(supportingText,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = palette.content.copy(alpha = 0.78f),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            when {
+                onToggleFavorite != null -> IconButton(onClick = onToggleFavorite) {
+                    Icon(if (favorite) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+                        contentDescription = favoriteDescription, tint = palette.accent)
+                }
+                favorite -> Icon(Icons.Outlined.Bookmark, contentDescription = "Corso salvato",
+                    tint = palette.accent, modifier = Modifier.padding(horizontal = 12.dp).size(21.dp))
+                showChevron -> Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                    contentDescription = null, tint = palette.content.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(horizontal = 10.dp))
+            }
+        }
+    }
+}
+
+@Composable
 fun CourseDetailScreen(
     course: SearchItem, year: String, favorite: Boolean, savedSubjects: List<SavedSubject>,
     onToggleFavorite: () -> Unit, onOpenCalendar: () -> Unit, onOpenAgenda: () -> Unit,
@@ -92,12 +151,11 @@ fun CourseDetailScreen(
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     Text(course.name, Modifier.weight(1f),
                         style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                    Surface(shape = RoundedCornerShape(14.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                        IconButton(onClick = onOpenAgenda, modifier = Modifier.size(44.dp)) {
-                            Icon(Icons.Outlined.ViewAgenda, contentDescription = "Apri vista agenda del corso")
-                        }
-                    }
+                    AppSurfaceIconButton(
+                        icon = Icons.Outlined.ViewAgenda,
+                        contentDescription = "Apri vista agenda del corso",
+                        onClick = onOpenAgenda
+                    )
                 }
                 Text("${yearLabel(year)} · $count insegnamenti disponibili",
                     Modifier.padding(top = 5.dp), style = MaterialTheme.typography.bodyMedium,
@@ -118,7 +176,7 @@ fun CourseDetailScreen(
                     Icon(if (favorite) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
                         contentDescription = null, Modifier.size(19.dp))
                     Spacer(Modifier.width(9.dp))
-                    Text(if (favorite) "Salvato nei preferiti" else "Salva corso nei preferiti")
+                    Text(if (favorite) "Corso salvato" else "Salva corso")
                 }
                 Text(if (course.coursePaths.any { it.code.startsWith("catalog:") }) "INSEGNAMENTI"
                     else "INSEGNAMENTI PER PERCORSO", Modifier.padding(top = 25.dp),
@@ -168,65 +226,44 @@ fun CourseDetailScreen(
 }
 
 @Composable
-fun FavoriteCoursesScreen(
+fun FavoriteCoursesContent(
     favorites: List<FavoriteCourse>, onOpen: (FavoriteCourse) -> Unit,
-    onRemove: (FavoriteCourse) -> Unit, onExplore: () -> Unit
+    onRemove: (FavoriteCourse) -> Unit, onExplore: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 30.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp)
     ) {
         item {
-            Column {
-                Text("Corsi preferiti", style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold)
-                Text("Ritrova i corsi di laurea e tutti gli insegnamenti dei loro percorsi.",
-                    Modifier.padding(top = 5.dp), style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                OutlinedButton(onClick = onExplore, modifier = Modifier.fillMaxWidth().padding(top = 18.dp)) {
-                    Icon(Icons.Outlined.School, contentDescription = null, Modifier.size(19.dp))
-                    Spacer(Modifier.width(9.dp))
-                    Text("Cerca un corso di laurea")
-                }
+            OutlinedButton(onClick = onExplore, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Outlined.School, contentDescription = null, Modifier.size(19.dp))
+                Spacer(Modifier.width(9.dp))
+                Text("Cerca un corso di laurea")
             }
         }
         if (favorites.isEmpty()) item {
-            Text("Nessun corso preferito. Cerca un corso e tocca il segnalibro per salvarlo.",
-                Modifier.padding(top = 26.dp), style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            AppEmptyState(
+                title = "Nessun corso salvato",
+                message = "Cerca un corso di laurea e tocca il segnalibro per ritrovarlo qui.",
+                action = "Esplora i corsi",
+                onAction = onExplore,
+                icon = Icons.Outlined.School
+            )
         }
         items(favorites, key = { "${it.year}:${it.code}" }) { favorite ->
-            val palette = degreePalette(favorite.degreeType)
-            Card(onClick = { onOpen(favorite) }, shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = palette.container)) {
-                Row(Modifier.fillMaxWidth().padding(start = 16.dp, top = 14.dp, bottom = 14.dp, end = 4.dp),
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(Icons.Outlined.School, contentDescription = null, tint = palette.accent,
-                                modifier = Modifier.size(24.dp))
-                        }
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(favorite.name, style = MaterialTheme.typography.titleMedium,
-                            color = palette.content, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text("${favorite.degreeType.label} · ${yearLabel(favorite.year)}",
-                            style = MaterialTheme.typography.labelMedium, color = palette.content)
-                    }
-                    IconButton(onClick = { onRemove(favorite) }) {
-                        Icon(Icons.Outlined.Bookmark, contentDescription = "Rimuovi ${favorite.name} dai preferiti",
-                            tint = palette.accent)
-                    }
-                }
-            }
+            DegreeCourseCard(
+                course = SearchItem(favorite.code, favorite.name, SearchKind.COURSE,
+                    degreeType = favorite.degreeType),
+                favorite = true,
+                onClick = { onOpen(favorite) },
+                supportingText = "${favorite.degreeType.label} · ${yearLabel(favorite.year)}",
+                onToggleFavorite = { onRemove(favorite) },
+                favoriteDescription = "Rimuovi ${favorite.name} dai salvati"
+            )
         }
     }
 }
 
-private fun yearLabel(year: String): String = year.toIntOrNull()?.let { "$it/${it + 1}" } ?: year
+internal fun yearLabel(year: String): String = year.toIntOrNull()?.let { "$it/${it + 1}" } ?: year

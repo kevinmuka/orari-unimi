@@ -135,6 +135,53 @@ class LocalStore(context: Context) {
         favoriteCourses().filterNot { it.year == course.year && it.code == course.code }
     )
 
+    fun followedExamCourses(): List<FavoriteCourse> = readCourses("followed_exam_courses")
+
+    fun addFollowedExamCourse(course: FavoriteCourse) {
+        val items = followedExamCourses()
+        if (items.none { it.year == course.year && it.code == course.code }) {
+            saveCourses("followed_exam_courses", items + course)
+        }
+    }
+
+    fun removeFollowedExamCourse(course: FavoriteCourse) = saveCourses(
+        "followed_exam_courses",
+        followedExamCourses().filterNot { it.year == course.year && it.code == course.code }
+    )
+
+    fun followedExamSubjects(): List<FollowedExamSubject> = try {
+        val values = JSONArray(preferences.getString("followed_exam_subjects", "[]"))
+        (0 until values.length()).mapNotNull { index ->
+            val value = values.optJSONObject(index) ?: return@mapNotNull null
+            val year = value.optString("year")
+            val code = value.optString("code")
+            val name = value.optString("name")
+            if (year.isBlank() || code.isBlank() || name.isBlank()) return@mapNotNull null
+            val sourcesJson = value.optJSONArray("sources") ?: JSONArray()
+            val sources = (0 until sourcesJson.length()).mapNotNull sourceLoop@ { sourceIndex ->
+                val source = sourcesJson.optJSONObject(sourceIndex) ?: return@sourceLoop null
+                val courseCode = source.optString("courseCode")
+                val examSubjectCode = source.optString("examSubjectCode")
+                if (courseCode.isBlank() || examSubjectCode.isBlank()) null
+                else ExamSubjectSource(courseCode, examSubjectCode)
+            }.distinct()
+            FollowedExamSubject(year, code, name, sources)
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    fun addFollowedExamSubject(subject: FollowedExamSubject) {
+        val items = followedExamSubjects()
+        if (items.none { it.year == subject.year && it.code == subject.code }) {
+            saveFollowedExamSubjects(items + subject)
+        }
+    }
+
+    fun removeFollowedExamSubject(subject: FollowedExamSubject) = saveFollowedExamSubjects(
+        followedExamSubjects().filterNot { it.year == subject.year && it.code == subject.code }
+    )
+
     fun savedExamAppeals(): List<ExamAppeal> = try {
         val values = JSONArray(preferences.getString("saved_exam_appeals", "[]"))
         val parsed = (0 until values.length()).mapNotNull { index ->
@@ -224,12 +271,47 @@ class LocalStore(context: Context) {
     }
 
     private fun saveFavoriteCourses(items: List<FavoriteCourse>) {
+        saveCourses("favorite_courses", items)
+    }
+
+    private fun readCourses(key: String): List<FavoriteCourse> = try {
+        val values = JSONArray(preferences.getString(key, "[]"))
+        (0 until values.length()).mapNotNull { index ->
+            val value = values.optJSONObject(index) ?: return@mapNotNull null
+            val year = value.optString("year")
+            val code = value.optString("code")
+            val name = value.optString("name")
+            if (year.isBlank() || code.isBlank() || name.isBlank()) null else FavoriteCourse(
+                year, code, name,
+                runCatching { DegreeType.valueOf(value.optString("degreeType")) }
+                    .getOrDefault(DegreeType.OTHER)
+            )
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    private fun saveCourses(key: String, items: List<FavoriteCourse>) {
         val values = JSONArray()
         items.forEach { item ->
             values.put(JSONObject().put("year", item.year).put("code", item.code)
                 .put("name", item.name).put("degreeType", item.degreeType.name))
         }
-        preferences.edit().putString("favorite_courses", values.toString()).commit()
+        preferences.edit().putString(key, values.toString()).commit()
+    }
+
+    private fun saveFollowedExamSubjects(items: List<FollowedExamSubject>) {
+        val values = JSONArray()
+        items.forEach { item ->
+            val sources = JSONArray()
+            item.sources.distinct().forEach { source ->
+                sources.put(JSONObject().put("courseCode", source.courseCode)
+                    .put("examSubjectCode", source.examSubjectCode))
+            }
+            values.put(JSONObject().put("year", item.year).put("code", item.code)
+                .put("name", item.name).put("sources", sources))
+        }
+        preferences.edit().putString("followed_exam_subjects", values.toString()).commit()
     }
 
     private fun saveExamAppeals(items: List<ExamAppeal>) {
