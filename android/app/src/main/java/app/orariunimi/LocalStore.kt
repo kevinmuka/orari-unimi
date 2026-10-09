@@ -18,18 +18,33 @@ class LocalStore(context: Context) {
         set(value) { preferences.edit().putBoolean("show_weekend", value).commit() }
 
     var notificationPreferences: NotificationPreferences
-        get() = NotificationPreferences(
-            enabled = preferences.getBoolean("notifications_enabled", false),
-            importantChanges = preferences.getBoolean("notifications_important_changes", false),
-            lessonReminders = preferences.getBoolean("notifications_lesson_reminders", false),
-            appUpdates = preferences.getBoolean("notifications_app_updates", false),
-            reminderMinutes = preferences.getInt("notifications_reminder_minutes", 30)
-                .takeIf { it in setOf(15, 30, 60) } ?: 30
-        )
+        get() {
+            val previousLessonSetting = preferences.getBoolean("notifications_important_changes", false)
+            return NotificationPreferences(
+                enabled = preferences.getBoolean("notifications_enabled", false),
+                lessonChanges = preferences.getBoolean("notifications_lesson_changes", previousLessonSetting),
+                examChanges = preferences.getBoolean("notifications_exam_changes", false),
+                examRegistrationOpenReminders = preferences.getBoolean(
+                    "notifications_exam_registration_open", false),
+                examRegistrationCloseReminders = preferences.getBoolean(
+                    "notifications_exam_registration_close", false),
+                examRegistrationCloseLeadDays = preferences.getInt(
+                    "notifications_exam_registration_close_days", 3).takeIf { it in setOf(1, 3, 7) } ?: 3,
+                lessonReminders = preferences.getBoolean("notifications_lesson_reminders", false),
+                appUpdates = preferences.getBoolean("notifications_app_updates", false),
+                reminderMinutes = preferences.getInt("notifications_reminder_minutes", 30)
+                    .takeIf { it in setOf(15, 30, 60) } ?: 30
+            )
+        }
         set(value) {
             preferences.edit()
                 .putBoolean("notifications_enabled", value.enabled)
-                .putBoolean("notifications_important_changes", value.importantChanges)
+                .putBoolean("notifications_lesson_changes", value.lessonChanges)
+                .putBoolean("notifications_important_changes", value.lessonChanges)
+                .putBoolean("notifications_exam_changes", value.examChanges)
+                .putBoolean("notifications_exam_registration_open", value.examRegistrationOpenReminders)
+                .putBoolean("notifications_exam_registration_close", value.examRegistrationCloseReminders)
+                .putInt("notifications_exam_registration_close_days", value.examRegistrationCloseLeadDays)
                 .putBoolean("notifications_lesson_reminders", value.lessonReminders)
                 .putBoolean("notifications_app_updates", value.appUpdates)
                 .putInt("notifications_reminder_minutes", value.reminderMinutes)
@@ -58,6 +73,18 @@ class LocalStore(context: Context) {
             .remove("scheduled_lesson_reminder_key")
             .remove("scheduled_lesson_reminder_at")
             .commit()
+    }
+
+    fun scheduledExamRegistrationReminders(): Map<String, Long> = try {
+        val values = JSONObject(preferences.getString("scheduled_exam_registration_reminders", "{}") ?: "{}")
+        values.keys().asSequence().associateWith { values.optLong(it) }
+    } catch (_: Exception) {
+        emptyMap()
+    }
+
+    fun setScheduledExamRegistrationReminders(values: Map<String, Long>) {
+        val json = JSONObject().apply { values.forEach { (key, atMillis) -> put(key, atMillis) } }
+        preferences.edit().putString("scheduled_exam_registration_reminders", json.toString()).commit()
     }
 
     var lastUpdateNotificationVersion: String?
@@ -185,29 +212,7 @@ class LocalStore(context: Context) {
     fun savedExamAppeals(): List<ExamAppeal> = try {
         val values = JSONArray(preferences.getString("saved_exam_appeals", "[]"))
         val parsed = (0 until values.length()).mapNotNull { index ->
-            val value = values.optJSONObject(index) ?: return@mapNotNull null
-            runCatching {
-                ExamAppeal(
-                    id = value.getString("id"),
-                    courseCode = value.getString("courseCode"),
-                    courseName = value.optString("courseName"),
-                    subjectCode = value.optString("subjectCode"),
-                    subjectPortalCode = value.optString("subjectPortalCode"),
-                    subjectName = value.getString("subjectName"),
-                    date = java.time.LocalDate.parse(value.getString("date")),
-                    time = value.optString("time"),
-                    location = value.optString("location"),
-                    teacher = value.optString("teacher"),
-                    surnameFrom = value.optString("surnameFrom"),
-                    surnameTo = value.optString("surnameTo"),
-                    testType = value.optString("testType"),
-                    appealType = value.optString("appealType"),
-                    registrationOpen = value.optString("registrationOpen").takeIf { it.isNotBlank() }
-                        ?.let(java.time.LocalDate::parse),
-                    registrationClose = value.optString("registrationClose").takeIf { it.isNotBlank() }
-                        ?.let(java.time.LocalDate::parse)
-                )
-            }.getOrNull()
+            values.optJSONObject(index)?.toExamAppeal()
         }
         val (expired, active) = parsed.partition { it.date.isBefore(java.time.LocalDate.now()) }
         if (expired.isNotEmpty()) {
@@ -232,6 +237,40 @@ class LocalStore(context: Context) {
         })
         removeExamNotes(listOf(appeal))
     }
+
+    fun removeSavedExamAppeals(appeals: List<ExamAppeal>) {
+        if (appeals.isEmpty()) return
+        val identities = appeals.map { ExamNotificationEngine.identity(it) }.toSet()
+        saveExamAppeals(savedExamAppeals().filterNot {
+            ExamNotificationEngine.identity(it) in identities
+        })
+        removeExamNotes(appeals)
+    }
+
+    fun removedExamNotices(): List<RemovedExamNotice> = try {
+        val values = JSONArray(preferences.getString("removed_exam_notices", "[]"))
+        (0 until values.length()).mapNotNull { index ->
+            val value = values.optJSONObject(index) ?: return@mapNotNull null
+            val appeal = value.optJSONObject("appeal")?.toExamAppeal() ?: return@mapNotNull null
+            RemovedExamNotice(value.getString("id"), appeal, value.optLong("detectedAtMillis"))
+        }.sortedByDescending { it.detectedAtMillis }
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    fun addRemovedExamNotices(appeals: List<ExamAppeal>, detectedAtMillis: Long) {
+        if (appeals.isEmpty()) return
+        val current = removedExamNotices().associateBy { it.id }.toMutableMap()
+        appeals.forEach { appeal ->
+            val id = "removed-${ExamNotificationEngine.identity(appeal)}"
+            current[id] = RemovedExamNotice(id, appeal, detectedAtMillis)
+        }
+        saveRemovedExamNotices(current.values.sortedByDescending { it.detectedAtMillis }.take(20))
+    }
+
+    fun dismissRemovedExamNotice(id: String) = saveRemovedExamNotices(
+        removedExamNotices().filterNot { it.id == id }
+    )
 
     fun examNote(appeal: ExamAppeal): String = try {
         JSONObject(preferences.getString("saved_exam_notes", "{}") ?: "{}")
@@ -316,27 +355,42 @@ class LocalStore(context: Context) {
 
     private fun saveExamAppeals(items: List<ExamAppeal>) {
         val values = JSONArray()
-        items.forEach { item ->
-            values.put(JSONObject()
-                .put("id", item.id)
-                .put("courseCode", item.courseCode)
-                .put("courseName", item.courseName)
-                .put("subjectCode", item.subjectCode)
-                .put("subjectPortalCode", item.subjectPortalCode)
-                .put("subjectName", item.subjectName)
-                .put("date", item.date.toString())
-                .put("time", item.time)
-                .put("location", item.location)
-                .put("teacher", item.teacher)
-                .put("surnameFrom", item.surnameFrom)
-                .put("surnameTo", item.surnameTo)
-                .put("testType", item.testType)
-                .put("appealType", item.appealType)
-                .put("registrationOpen", item.registrationOpen?.toString().orEmpty())
-                .put("registrationClose", item.registrationClose?.toString().orEmpty()))
-        }
+        items.forEach { values.put(it.toJson()) }
         preferences.edit().putString("saved_exam_appeals", values.toString()).commit()
     }
+
+    private fun saveRemovedExamNotices(items: List<RemovedExamNotice>) {
+        val values = JSONArray().apply { items.forEach { notice ->
+            put(JSONObject().put("id", notice.id).put("appeal", notice.appeal.toJson())
+                .put("detectedAtMillis", notice.detectedAtMillis))
+        } }
+        preferences.edit().putString("removed_exam_notices", values.toString()).commit()
+    }
+
+    private fun ExamAppeal.toJson() = JSONObject()
+        .put("id", id).put("courseCode", courseCode).put("courseName", courseName)
+        .put("subjectCode", subjectCode).put("subjectPortalCode", subjectPortalCode)
+        .put("subjectName", subjectName).put("date", date.toString()).put("time", time)
+        .put("location", location).put("teacher", teacher).put("surnameFrom", surnameFrom)
+        .put("surnameTo", surnameTo).put("testType", testType).put("appealType", appealType)
+        .put("registrationOpen", registrationOpen?.toString().orEmpty())
+        .put("registrationClose", registrationClose?.toString().orEmpty())
+
+    private fun JSONObject.toExamAppeal(): ExamAppeal? = runCatching {
+        ExamAppeal(
+            id = getString("id"), courseCode = getString("courseCode"),
+            courseName = optString("courseName"), subjectCode = optString("subjectCode"),
+            subjectPortalCode = optString("subjectPortalCode"), subjectName = getString("subjectName"),
+            date = java.time.LocalDate.parse(getString("date")), time = optString("time"),
+            location = optString("location"), teacher = optString("teacher"),
+            surnameFrom = optString("surnameFrom"), surnameTo = optString("surnameTo"),
+            testType = optString("testType"), appealType = optString("appealType"),
+            registrationOpen = optString("registrationOpen").takeIf { it.isNotBlank() }
+                ?.let(java.time.LocalDate::parse),
+            registrationClose = optString("registrationClose").takeIf { it.isNotBlank() }
+                ?.let(java.time.LocalDate::parse)
+        )
+    }.getOrNull()
 
     private fun removeExamNotes(appeals: List<ExamAppeal>) {
         if (appeals.isEmpty()) return
@@ -373,6 +427,17 @@ class LocalStore(context: Context) {
                 timestampMillis = value.optLong("timestampMillis"),
                 targetDate = value.optString("targetDate").takeIf { it.isNotBlank() }
                     ?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() },
+                targetKey = value.optString("targetKey").takeIf { it.isNotBlank() },
+                targetTitle = value.optString("targetTitle").takeIf { it.isNotBlank() },
+                changes = value.optJSONArray("changes")?.let { changes ->
+                    (0 until changes.length()).mapNotNull { changeIndex ->
+                        changes.optJSONObject(changeIndex)?.let { change ->
+                            val label = change.optString("label")
+                            if (label.isBlank()) null else NotificationFieldChange(
+                                label, change.optString("before"), change.optString("after"))
+                        }
+                    }
+                }.orEmpty(),
                 read = value.optBoolean("read", false)
             )
         }
@@ -390,6 +455,12 @@ class LocalStore(context: Context) {
                 .put("message", item.message)
                 .put("timestampMillis", item.timestampMillis)
                 .put("targetDate", item.targetDate?.toString().orEmpty())
+                .put("targetKey", item.targetKey.orEmpty())
+                .put("targetTitle", item.targetTitle.orEmpty())
+                .put("changes", JSONArray().apply { item.changes.forEach { change ->
+                    put(JSONObject().put("label", change.label).put("before", change.before)
+                        .put("after", change.after))
+                } })
                 .put("read", item.read))
         }
         preferences.edit().putString("notification_inbox", values.toString()).commit()

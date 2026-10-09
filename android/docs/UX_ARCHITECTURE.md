@@ -41,11 +41,11 @@ contesto di provenienza.
 | Corso | percorsi e insegnamenti, calendario, agenda, appelli, salvataggio corso e insegnamenti |
 | Lezioni | prossima lezione, calendario aggregato, agenda giorno/settimana, aggiunta e rimozione insegnamenti |
 | Calendari | giorno corrente, navigazione giorno/settimana/mese, weekend facoltativo, cache e refresh manuale |
-| Appelli | ricerca per corso, insegnamenti seguiti da Lezioni o aggiunti manualmente, oggi/30 giorni/tutti, dettagli, calendario Android, calendario mensile, lista cronologica, note personali |
+| Appelli | ricerca per corso, insegnamenti seguiti da Lezioni o aggiunti manualmente, oggi/30 giorni/tutti, dettagli, calendario Android, calendario mensile, lista cronologica, note personali, avvisi persistenti per appelli rimossi |
 | Preferiti | corsi di laurea salvati e accesso ai relativi insegnamenti |
-| Notifiche | variazioni, prossima lezione, aggiornamenti, inbox, refresh e cancellazione con annulla |
+| Notifiche | variazioni con Prima/Dopo, prossima lezione, iscrizioni agli appelli, aggiornamenti, inbox, refresh e cancellazione con annulla |
 | Widget | agenda del giorno, navigazione tra date, ritorno a oggi, weekend coerente con le preferenze |
-| Preferenze | weekend, notifiche, anticipo promemoria, controllo e installazione aggiornamenti |
+| Preferenze | weekend, notifiche, anticipi dei promemoria, diagnostica discreta, controllo e installazione aggiornamenti |
 
 ## Componenti condivisi
 
@@ -73,6 +73,7 @@ devono restare disponibili:
 
 - insegnamenti e corsi salvati;
 - appelli e note personali;
+- avvisi non ancora riconosciuti per appelli rimossi;
 - preferenza weekend e configurazione notifiche;
 - baseline delle variazioni e inbox locale.
 

@@ -36,13 +36,25 @@ eliminato automaticamente dalla cache dell'app. Se una release mantiene lo
 stesso numero visibile, un `versionCode` superiore nella descrizione GitHub la
 rende comunque rilevabile come nuova build.
 Le notifiche sono interamente facoltative e configurabili nelle Preferenze.
-Possono segnalare variazioni importanti degli orari, ricordare in modo
-silenzioso la prossima lezione e avvisare silenziosamente delle nuove versioni.
+Due interruttori distinti possono segnalare le variazioni delle lezioni e
+quelle degli appelli salvati, inclusi cambi di data, ora, luogo, docente,
+iscrizioni e altri dettagli pubblicati. Salvare o rimuovere un preferito non
+produce un avviso: una nuova selezione crea prima una fotografia di riferimento.
+Le notifiche delle variazioni aprono un dettaglio con i valori prima e dopo.
+Per gli appelli salvati si possono inoltre attivare separatamente i promemoria
+per apertura e scadenza delle iscrizioni; se le date cambiano, i lavori locali
+vengono riprogrammati. Un appello non più pubblicato rimane tra gli avvisi da
+verificare finché l'utente non ne conferma la lettura, anche se elimina la
+notifica. L'app può inoltre ricordare in modo silenzioso la prossima lezione e
+avvisare silenziosamente delle nuove versioni.
 La campanella nella schermata principale apre lo storico locale, dal quale ogni
 voce può essere eliminata con uno swipe. I controlli vengono richiesti ogni 15
 minuti: quando l'app è aperta aggiornano soltanto lo storico interno, mentre in
 background possono mostrare una notifica Android. Dettagli e protezioni adottate
 sono descritti in [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md).
+In fondo alle impostazioni delle notifiche, la riga discreta **Stato
+sincronizzazione** mostra su richiesta ultimo esito, sorgenti, rete e cache e
+permette di controllare separatamente lezioni e appelli.
 Se il record di un corso non elenca ancora gli insegnamenti, l'app cerca quelli
 associati al suo codice nell'elenco generale pubblicato dal portale per lo
 stesso anno accademico.

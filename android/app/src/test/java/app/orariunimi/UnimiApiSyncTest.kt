@@ -41,11 +41,12 @@ class UnimiApiSyncTest {
     @Test fun automaticRefreshReusesOnlyVeryRecentData() = withCache { directory ->
         var now = 1_000_000L
         val calls = AtomicInteger()
+        val cacheEvents = mutableListOf<Boolean>()
         val cache = ResponseCache(directory, clockMillis = { now })
         val api = UnimiApi(cache = cache, clockMillis = { now }, transport = { _, encoded, _ ->
             calls.incrementAndGet()
             response(formValues(encoded).getValue("attivita[]"))
-        })
+        }, scheduleLoadObserver = cacheEvents::add)
         val saved = listOf(SavedSubject("2025", "A", "A"))
 
         api.refreshSavedLessons(saved)
@@ -60,6 +61,7 @@ class UnimiApiSyncTest {
         now += 1L
         api.refreshSavedLessons(saved)
         assertEquals(3, calls.get())
+        assertEquals(listOf(false, true, false, false), cacheEvents)
     }
 
     @Test fun concurrentForcedRefreshesShareOneNetworkResponse() = withCache { directory ->

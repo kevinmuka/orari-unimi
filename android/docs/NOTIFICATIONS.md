@@ -1,7 +1,8 @@
 # Notifiche locali
 
 Dalla versione 1.5.0 Orari UNIMI può controllare in background gli insegnamenti
-salvati e raccogliere gli avvisi in un centro notifiche interno. Il sistema è
+salvati; il controllo è stato poi esteso agli appelli salvati. Gli avvisi sono
+raccolti in un centro notifiche interno. Il sistema è
 disattivato per impostazione predefinita. L'utente deve attivare l'interruttore
 generale nelle Preferenze e scegliere singolarmente quali categorie usare.
 Nella versione 1.5.1 le categorie sono raccolte nella schermata
@@ -11,8 +12,14 @@ nel riquadro **Prossima lezione**.
 
 ## Categorie
 
-- **Variazioni importanti**: annullamenti, ripristini, nuove lezioni e cambi di
-  data, ora, aula, docente o note.
+- **Variazioni delle lezioni**: annullamenti, ripristini e cambi di data, ora,
+  aula, docente o note negli insegnamenti salvati.
+- **Variazioni degli appelli**: cambi di data, ora, luogo, docente, periodo di
+  iscrizione, tipo di prova e degli altri dati pubblicati per gli appelli
+  salvati nei promemoria.
+- **Apertura iscrizioni**: avviso il giorno in cui diventano disponibili le
+  iscrizioni a un appello salvato.
+- **Scadenza iscrizioni**: avviso 1, 3 o 7 giorni prima della chiusura.
 - **Prossima lezione**: promemoria silenzioso 15, 30 o 60 minuti prima
   dell'inizio.
 - **Aggiornamenti dell'app**: avviso silenzioso quando GitHub pubblica una
@@ -22,11 +29,14 @@ La campanella accanto alle Preferenze mostra il numero di avvisi non letti.
 Aprendola si trovano le notifiche raggruppate per data; uno swipe verso sinistra
 elimina la singola voce. Trascinando l'elenco verso il basso si avvia subito un
 nuovo controllo delle categorie abilitate. Lo storico contiene al massimo 100
-elementi ed è salvato solo sul dispositivo.
+elementi ed è salvato solo sul dispositivo. Toccando una variazione si apre il
+dettaglio dell'elemento con i valori **Prima** e **Dopo**; da lì si può aprire
+il giorno della lezione o l'appello. Anche il tap sulla notifica Android apre
+direttamente questo dettaglio, mentre una notifica riepilogativa apre il centro.
 
 ## Frequenza e limiti Android
 
-Tutte le categorie, compresi gli aggiornamenti dell'app, vengono pianificate con
+I controlli di lezioni, appelli e aggiornamenti vengono pianificati con
 WorkManager ogni 15 minuti, il minimo consentito per il lavoro periodico. È la
 frequenza richiesta dall'app, non una garanzia di esecuzione esatta: Android può
 rinviare un controllo per batteria, modalità Doze, assenza di rete o limiti
@@ -36,12 +46,14 @@ piano dell'app richiede inoltre un controllo immediato di tutte le categorie
 abilitate; WorkManager accorpa e sostituisce le richieste immediate omonime per
 evitare controlli simultanei duplicati.
 
-Dalla versione 1.5.4 i recuperi automatici condividono una finestra di
-freschezza di due minuti: se l'interfaccia o un altro worker hanno appena
+Dalla versione 1.5.4 i recuperi automatici degli orari condividono una finestra
+di freschezza di due minuti: se l'interfaccia o un altro worker hanno appena
 ottenuto gli stessi dati, il controllo riutilizza quella risposta. Gli
 insegnamenti salvati dello stesso anno vengono inoltre richiesti insieme, in
-gruppi da massimo 20. Il refresh manuale continua a forzare la rete. Dettagli e
-vincoli sono raccolti in [Sincronizzazione locale degli orari](SCHEDULE_SYNC.md).
+gruppi da massimo 20. La stessa finestra viene applicata agli appelli; per
+questi ultimi la cache e i lock sono distinti per corso di laurea e intervallo.
+Il refresh manuale continua a forzare la rete. Dettagli e vincoli sono raccolti
+in [Sincronizzazione locale degli orari](SCHEDULE_SYNC.md).
 
 I controlli avviati mentre si usa l'app, inclusi quelli richiesti trascinando il
 centro notifiche verso il basso, aggiungono gli avvisi soltanto al centro interno.
@@ -57,7 +69,15 @@ considerato una sveglia esatta. Su Android 13 o successivo serve anche il
 permesso di sistema per mostrare gli avvisi. Se il permesso viene revocato, gli
 eventi possono comunque essere conservati nel centro notifiche locale.
 
-## Controllo delle variazioni
+I promemoria delle iscrizioni sono lavori singoli calcolati dai dati già
+scaricati e non effettuano richieste proprie. Quello di apertura è programmato
+alle 09:00 del giorno indicato da UNIMI; quello di scadenza alle 09:00 del giorno
+ottenuto sottraendo l'anticipo scelto. WorkManager può ritardarli e quindi non
+sono sveglie esatte. Ogni fotografia valida riconcilia tutti i lavori: una data
+modificata sostituisce il vecchio promemoria, una data rimossa lo cancella e un
+appello rimosso cancella entrambi.
+
+## Controllo delle variazioni delle lezioni
 
 Il primo recupero valido crea una fotografia di riferimento senza inviare
 avvisi. I controlli successivi confrontano solo le lezioni odierne o future,
@@ -71,19 +91,79 @@ Per ridurre i falsi positivi vengono applicate queste protezioni:
 3. una singola lezione scomparsa deve mancare in due controlli consecutivi;
 4. lo stesso cambiamento ha un identificativo stabile e non viene archiviato o
    notificato due volte;
-5. quando cambia l'elenco degli insegnamenti salvati viene creata una nuova
-   fotografia, così le lezioni appena aggiunte dall'utente non sono scambiate
-   per variazioni dell'orario.
+5. la fotografia contiene una firma della selezione degli insegnamenti salvati;
+   quando la firma cambia viene creata una nuova baseline senza avvisi;
+6. la firma viene verificata di nuovo dopo la risposta di rete, così un worker
+   già in corso non può interpretare un salvataggio o una rimozione dell'utente
+   come una variazione dell'orario.
 
 Annullamenti espliciti e cambi di campi in una lezione già identificata vengono
 segnalati al primo controllo valido. Tutti i confronti e i dati di riferimento
 restano nei file privati dell'app; non esiste un server dedicato e non vengono
 caricati dati personali.
 
+I corsi di laurea preferiti non fanno parte di questa baseline e aggiungerli o
+rimuoverli non genera notifiche. Per le lezioni conta esclusivamente la
+selezione degli insegnamenti salvati in **Lezioni**.
+
+## Controllo delle variazioni degli appelli
+
+Il controllo degli appelli considera esclusivamente quelli salvati nei
+promemoria. I corsi di laurea preferiti e gli insegnamenti soltanto seguiti
+servono alla navigazione e alla ricerca, ma non generano notifiche. Anche qui il
+primo recupero valido, o il primo successivo a una modifica della selezione,
+crea una baseline senza avvisi.
+
+Un appello è identificato dalla coppia composta dal codice del corso di laurea
+e dall'identificativo pubblicato dal portale. Per un appello già noto vengono
+confrontati tutti i dati restituiti dall'API: data, ora, luogo, docente,
+intervallo alfabetico, tipo di prova, tipo di appello, apertura e chiusura delle
+iscrizioni, nome dell'insegnamento, nome del corso e codici dell'insegnamento.
+
+Le protezioni applicate sono le seguenti:
+
+1. se anche una sola richiesta fallisce, la baseline intera rimane invariata;
+2. una risposta complessivamente vuota deve ripetersi prima di essere accettata;
+3. un singolo appello non più presente deve mancare in due controlli validi
+   consecutivi prima di produrre l'avviso **Appello non più disponibile**;
+4. le notifiche hanno un identificativo stabile e non vengono duplicate;
+5. la firma degli appelli salvati viene controllata prima e dopo la rete, per
+   neutralizzare le modifiche fatte dall'utente mentre il worker è attivo;
+6. un appello appena salvato aggiorna la baseline e non è trattato come una
+   novità pubblicata dall'università.
+
+Dopo la seconda assenza valida, l'appello viene rimosso dai promemoria attivi e
+la sua nota personale viene eliminata. L'app conserva però una segnalazione
+locale nella sezione **I miei appelli**, sotto **Da verificare**, finché l'utente
+non preme **Ho capito**. Questa segnalazione è indipendente dal centro
+notifiche: eliminare la notifica non fa perdere l'avviso della scomparsa.
+
+Per `A` appelli salvati appartenenti a `C` corsi di laurea distinti, un ciclo
+automatico esegue al massimo `C` richieste, in sequenza. Non esegue richieste se
+non esistono appelli salvati. Richieste simultanee per lo stesso corso vengono
+accorpate e una risposta ottenuta da meno di due minuti viene condivisa con
+l'interfaccia. Il portale espone gli appelli per corso di laurea, quindi sul
+solo client non è possibile ridurre in modo corretto il limite sotto `C` senza
+un servizio centrale che condivida la stessa risposta tra dispositivi diversi.
+
+## Diagnostica locale
+
+In fondo a **Impostazioni notifiche** compare una riga discreta chiamata
+**Stato sincronizzazione**. È chiusa inizialmente e non occupa spazio nelle
+schermate principali. Una volta aperta mostra separatamente per lezioni e
+appelli l'ultimo controllo riuscito, l'errore più recente, il numero di sorgenti,
+le richieste di rete, i riusi della cache e le variazioni rilevate.
+
+Le due icone di aggiornamento eseguono un controllo manuale indipendente per
+lezioni o appelli. Il risultato distingue nessuna variazione, variazioni
+rilevate ed esecuzione proseguita in background. I dati diagnostici rimangono
+nelle preferenze locali e non vengono inviati a un server.
+
 ## Canali di sistema
 
-Android espone tre canali separati: variazioni, promemoria e aggiornamenti.
-Quello delle variazioni usa l'importanza normale; promemoria e aggiornamenti
+Android espone cinque canali separati: variazioni delle lezioni, variazioni
+degli appelli, iscrizioni agli appelli, promemoria delle lezioni e aggiornamenti.
+I primi tre usano l'importanza normale; promemoria delle lezioni e aggiornamenti
 sono creati silenziosi. Le impostazioni di sistema possono comunque cambiare
 visibilità, suono e priorità di ciascun canale.
 

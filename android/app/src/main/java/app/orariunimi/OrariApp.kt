@@ -103,9 +103,16 @@ private enum class RootTab(val index: Int) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRequest: Int = 0) {
+fun OrariApp(
+    initialTab: Int = 0,
+    openSavedRequest: Int = 0,
+    openNotificationsRequest: Int = 0,
+    openNotificationId: String? = null,
+    openNotificationRequest: Int = 0
+) {
     val context = LocalContext.current
     val store = remember(context) { LocalStore(context.applicationContext) }
+    val diagnosticsStore = remember(context) { SyncDiagnosticsStore(context.applicationContext) }
     val responseCache = remember(context) { ResponseCache(File(context.cacheDir, "orari-responses")) }
     val api = remember(context, responseCache) { UnimiApi(cache = responseCache) }
     val examApi = remember(context, responseCache) { ExamApi(cache = responseCache) }
@@ -130,6 +137,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
     var examRefreshing by remember { mutableStateOf(false) }
     var examOpenedFromCourseDetail by remember { mutableStateOf(false) }
     var examPlannerAppeal by remember { mutableStateOf<ExamAppeal?>(null) }
+    var examPlannerAppealAvailable by remember { mutableStateOf(true) }
     var examPlannerNote by remember { mutableStateOf("") }
     var examPlannerOpen by remember { mutableStateOf(false) }
     var examPlannerSavedMode by remember { mutableStateOf(false) }
@@ -155,10 +163,16 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
     var favorites by remember { mutableStateOf(store.favoriteCourses()) }
     var followedExamSubjects by remember { mutableStateOf(store.followedExamSubjects()) }
     var savedExamAppeals by remember { mutableStateOf(store.savedExamAppeals()) }
+    var removedExamNotices by remember { mutableStateOf(store.removedExamNotices()) }
     var weekend by remember { mutableStateOf(store.showWeekend) }
     var notificationPreferences by remember { mutableStateOf(store.notificationPreferences) }
     var notificationEntries by remember { mutableStateOf(store.notifications()) }
     var notificationRefreshing by remember { mutableStateOf(false) }
+    var notificationDetailEntry by remember { mutableStateOf<AppNotificationEntry?>(null) }
+    var lessonDiagnostics by remember { mutableStateOf(diagnosticsStore.read(SyncDiagnosticKind.LESSONS)) }
+    var examDiagnostics by remember { mutableStateOf(diagnosticsStore.read(SyncDiagnosticKind.EXAMS)) }
+    var checkingLessonDiagnostics by remember { mutableStateOf(false) }
+    var checkingExamDiagnostics by remember { mutableStateOf(false) }
     var week by remember { mutableStateOf(startOfWeek(LocalDate.now())) }
     var selectedDay by remember { mutableStateOf(LocalDate.now()) }
     var updateState by remember { mutableStateOf<AppUpdateState>(AppUpdateState.Idle) }
@@ -192,6 +206,14 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key == "notification_inbox") scope.launch {
                 notificationEntries = store.notifications()
+            }
+            if (key == "saved_exam_appeals" || key == "removed_exam_notices") scope.launch {
+                savedExamAppeals = store.savedExamAppeals()
+                removedExamNotices = store.removedExamNotices()
+            }
+            if (key == "sync_diagnostics") scope.launch {
+                lessonDiagnostics = diagnosticsStore.read(SyncDiagnosticKind.LESSONS)
+                examDiagnostics = diagnosticsStore.read(SyncDiagnosticKind.EXAMS)
             }
         }
         preferences.registerOnSharedPreferenceChangeListener(listener)
@@ -255,6 +277,28 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
             notificationEntries = store.notifications()
             notificationsOpen = true
         }
+    }
+
+    LaunchedEffect(openNotificationRequest) {
+        val entry = openNotificationId?.let { id -> store.notifications().firstOrNull { it.id == id } }
+            ?: return@LaunchedEffect
+        settings = entry.type == AppNotificationType.APP_UPDATE
+        notificationsOpen = false
+        notificationSettingsOpen = false
+        agendaOpen = false
+        lessonMonthOpen = false
+        calendar = null
+        courseDetail = null
+        examCourse = null
+        examSubject = null
+        examCourseYear = null
+        examData = null
+        examError = null
+        examPlannerAppeal = null
+        examPlannerOpen = false
+        notificationDetailEntry = entry.takeUnless { it.type == AppNotificationType.APP_UPDATE }
+        store.markNotificationsRead()
+        notificationEntries = store.notifications()
     }
 
     LaunchedEffect(yearRetry) {
@@ -467,10 +511,37 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
         }
     }
 
-    fun setNotificationPreferences(updated: NotificationPreferences, resetBaseline: Boolean = false) {
+    fun refreshDiagnostics(kind: SyncDiagnosticKind) {
+        if (kind == SyncDiagnosticKind.LESSONS && checkingLessonDiagnostics ||
+            kind == SyncDiagnosticKind.EXAMS && checkingExamDiagnostics) return
+        scope.launch {
+            if (kind == SyncDiagnosticKind.LESSONS) checkingLessonDiagnostics = true
+            else checkingExamDiagnostics = true
+            val id = if (kind == SyncDiagnosticKind.LESSONS)
+                NotificationScheduler.refreshLessonsNow(context)
+            else NotificationScheduler.refreshExamsNow(context)
+            val completed = id?.let { requestId -> runCatching {
+                withContext(Dispatchers.IO) {
+                    NotificationScheduler.waitForRefresh(context, listOf(requestId))
+                }
+            }.getOrDefault(false) }
+            lessonDiagnostics = diagnosticsStore.read(SyncDiagnosticKind.LESSONS)
+            examDiagnostics = diagnosticsStore.read(SyncDiagnosticKind.EXAMS)
+            if (kind == SyncDiagnosticKind.LESSONS) checkingLessonDiagnostics = false
+            else checkingExamDiagnostics = false
+            snackbar.showAppSnackbar(when (completed) {
+                true -> if ((if (kind == SyncDiagnosticKind.LESSONS) lessonDiagnostics
+                        else examDiagnostics).changesFound == 0) "Nessuna variazione rilevata"
+                    else "Controllo completato: variazioni rilevate"
+                false -> "Il controllo continuerà in background"
+                null -> "Attiva il relativo controllo nelle preferenze"
+            })
+        }
+    }
+
+    fun setNotificationPreferences(updated: NotificationPreferences) {
         notificationPreferences = updated
         store.notificationPreferences = updated
-        if (resetBaseline) NotificationBaselineStore(context).clear()
         NotificationScheduler.configure(context, runNow = true)
     }
 
@@ -489,6 +560,11 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
         NotificationBaselineStore(context).clear()
         store.lastLessonReminderKey = null
         NotificationScheduler.cancelLessonReminder(context)
+        NotificationScheduler.configure(context, runNow = true)
+    }
+
+    fun examSelectionChanged() {
+        ExamNotificationBaselineStore(context).clear()
         NotificationScheduler.configure(context, runNow = true)
     }
 
@@ -543,6 +619,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
         val isSaved = savedExamAppeals.any { it.id == appeal.id && it.courseCode == appeal.courseCode }
         if (isSaved) store.removeSavedExamAppeal(appeal) else store.addSavedExamAppeal(appeal)
         savedExamAppeals = store.savedExamAppeals()
+        examSelectionChanged()
         showBriefSnackbar(if (isSaved) "Appello rimosso dai promemoria" else "Appello salvato nei promemoria")
     }
 
@@ -586,7 +663,10 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                 }
                 if (loadId == examLoadId) {
                     examData = ExamViewData(course.code, selectedWindow, fresh, offline = false)
-                    if (savedChanged) savedExamAppeals = store.savedExamAppeals()
+                    if (savedChanged) {
+                        savedExamAppeals = store.savedExamAppeals()
+                        NotificationScheduler.reconcileExamRegistrationReminders(context)
+                    }
                     examError = null
                 }
             } catch (cause: Exception) {
@@ -655,7 +735,10 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                 }
                 if (loadId == examLoadId) {
                     examData = ExamViewData(subject.code, selectedWindow, refreshed, offline = false)
-                    if (savedChanged) savedExamAppeals = store.savedExamAppeals()
+                    if (savedChanged) {
+                        savedExamAppeals = store.savedExamAppeals()
+                        NotificationScheduler.reconcileExamRegistrationReminders(context)
+                    }
                     examError = null
                 }
             } catch (cause: Exception) {
@@ -834,9 +917,11 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
         calendarRefreshing = false
         busy = false
         when {
+            notificationDetailEntry != null -> notificationDetailEntry = null
             examPlannerAppeal != null -> {
                 examPlannerAppeal = null
                 examPlannerNote = ""
+                examPlannerAppealAvailable = true
             }
             examPlannerOpen -> examPlannerOpen = false
             lessonMonthOpen -> lessonMonthOpen = false
@@ -867,10 +952,10 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
         error = null
     }
 
-    BackHandler(enabled = examPlannerAppeal != null || examPlannerOpen || lessonMonthOpen || calendar != null || courseDetail != null || examCourse != null || agendaOpen || settings ||
+    BackHandler(enabled = notificationDetailEntry != null || examPlannerAppeal != null || examPlannerOpen || lessonMonthOpen || calendar != null || courseDetail != null || examCourse != null || agendaOpen || settings ||
         notificationsOpen || notificationSettingsOpen) { goBack() }
 
-    val showingRootTab = examPlannerAppeal == null && !examPlannerOpen && !lessonMonthOpen && calendar == null &&
+    val showingRootTab = notificationDetailEntry == null && examPlannerAppeal == null && !examPlannerOpen && !lessonMonthOpen && calendar == null &&
         courseDetail == null && examCourse == null && !agendaOpen && !settings &&
         !notificationsOpen && !notificationSettingsOpen
 
@@ -879,6 +964,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
             TopAppBar(
                 title = {
                     when {
+                        notificationDetailEntry != null -> Text("Dettagli variazione")
                         examPlannerAppeal != null -> Text("Dettagli appello")
                         examPlannerOpen -> Text("I miei appelli")
                         lessonMonthOpen -> Text("Calendario mensile")
@@ -898,7 +984,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                     }
                 },
                 navigationIcon = {
-                    if (examPlannerAppeal != null || examPlannerOpen || lessonMonthOpen || calendar != null || courseDetail != null || examCourse != null || agendaOpen || settings || notificationsOpen ||
+                    if (notificationDetailEntry != null || examPlannerAppeal != null || examPlannerOpen || lessonMonthOpen || calendar != null || courseDetail != null || examCourse != null || agendaOpen || settings || notificationsOpen ||
                         notificationSettingsOpen) IconButton(onClick = ::goBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Indietro")
                     }
@@ -983,11 +1069,65 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                         entriesRetry++
                     }} else null)
                 when {
+                    notificationDetailEntry != null -> {
+                        val entry = notificationDetailEntry!!
+                        NotificationChangeDetailsScreen(entry = entry, onOpenTarget = {
+                            notificationDetailEntry = null
+                            when (entry.type) {
+                                AppNotificationType.EXAM_CHANGE,
+                                AppNotificationType.EXAM_REGISTRATION_REMINDER -> {
+                                    tab = RootTab.EXAMS
+                                    savedExamAppeals = store.savedExamAppeals()
+                                    removedExamNotices = store.removedExamNotices()
+                                    val active = savedExamAppeals.firstOrNull {
+                                        ExamNotificationEngine.identity(it) == entry.targetKey
+                                    }
+                                    val removed = removedExamNotices.firstOrNull {
+                                        ExamNotificationEngine.identity(it.appeal) == entry.targetKey
+                                    }?.appeal
+                                    val target = active ?: removed
+                                    if (target != null) {
+                                        examPlannerAppeal = target
+                                        examPlannerAppealAvailable = active != null
+                                        examPlannerNote = if (active != null) store.examNote(target) else ""
+                                    } else openExamPlanner()
+                                }
+                                else -> entry.targetDate?.let { day ->
+                                    if (saved.isNotEmpty()) showCalendar(
+                                        "Lezioni", year?.code.orEmpty(), null, saved, day)
+                                }
+                            }
+                        })
+                    }
                     notificationSettingsOpen -> NotificationSettingsScreen(
                         notificationPreferences = notificationPreferences,
-                        onImportantChanges = {
+                        lessonDiagnostics = lessonDiagnostics,
+                        examDiagnostics = examDiagnostics,
+                        checkingLessons = checkingLessonDiagnostics,
+                        checkingExams = checkingExamDiagnostics,
+                        onLessonChanges = {
+                            NotificationBaselineStore(context).clear()
                             setNotificationPreferences(notificationPreferences.copy(
-                                importantChanges = !notificationPreferences.importantChanges), resetBaseline = true)
+                                lessonChanges = !notificationPreferences.lessonChanges))
+                        },
+                        onExamChanges = {
+                            ExamNotificationBaselineStore(context).clear()
+                            setNotificationPreferences(notificationPreferences.copy(
+                                examChanges = !notificationPreferences.examChanges))
+                        },
+                        onExamRegistrationOpenReminders = {
+                            setNotificationPreferences(notificationPreferences.copy(
+                                examRegistrationOpenReminders =
+                                    !notificationPreferences.examRegistrationOpenReminders))
+                        },
+                        onExamRegistrationCloseReminders = {
+                            setNotificationPreferences(notificationPreferences.copy(
+                                examRegistrationCloseReminders =
+                                    !notificationPreferences.examRegistrationCloseReminders))
+                        },
+                        onExamRegistrationCloseLeadDays = { days ->
+                            setNotificationPreferences(notificationPreferences.copy(
+                                examRegistrationCloseLeadDays = days))
                         },
                         onLessonReminders = {
                             store.lastLessonReminderKey = null
@@ -1001,7 +1141,9 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                         onReminderMinutes = { minutes ->
                             store.lastLessonReminderKey = null
                             setNotificationPreferences(notificationPreferences.copy(reminderMinutes = minutes))
-                        }
+                        },
+                        onCheckLessons = { refreshDiagnostics(SyncDiagnosticKind.LESSONS) },
+                        onCheckExams = { refreshDiagnostics(SyncDiagnosticKind.EXAMS) }
                     )
                     notificationsOpen -> NotificationCenterScreen(
                         entries = notificationEntries,
@@ -1029,6 +1171,12 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                         onOpen = { entry ->
                             when (entry.type) {
                                 AppNotificationType.APP_UPDATE -> openSettings()
+                                AppNotificationType.LESSON_CHANGE,
+                                AppNotificationType.EXAM_CHANGE,
+                                AppNotificationType.EXAM_REGISTRATION_REMINDER -> {
+                                    notificationsOpen = false
+                                    notificationDetailEntry = entry
+                                }
                                 else -> if (saved.isNotEmpty()) showCalendar(
                                     "Lezioni", year?.code.orEmpty(), null, saved, entry.targetDate
                                 )
@@ -1068,6 +1216,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                         ExamAppealDetailsScreen(
                             appeal = selected,
                             saved = selectedSaved,
+                            available = examPlannerAppealAvailable,
                             savedNote = examPlannerNote,
                             onSaveNote = { appeal, note ->
                                 store.setExamNote(appeal, note)
@@ -1083,12 +1232,32 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                     }
                     examPlannerOpen -> ExamPlannerScreen(
                         savedAppeals = savedExamAppeals,
+                        removedNotices = removedExamNotices,
                         appealsWithNotes = examAppealsWithNotes,
                         showSaved = examPlannerSavedMode,
                         onShowSaved = { examPlannerSavedMode = it },
                         onSelectAppeal = {
                             examPlannerAppeal = it
+                            examPlannerAppealAvailable = true
                             examPlannerNote = store.examNote(it)
+                        },
+                        onSelectRemoved = { notice ->
+                            notificationDetailEntry = AppNotificationEntry(
+                                id = notice.id,
+                                type = AppNotificationType.EXAM_CHANGE,
+                                title = "Appello non più disponibile",
+                                message = "${notice.appeal.subjectName}: l’appello del ${notice.appeal.date} non risulta più pubblicato.",
+                                timestampMillis = notice.detectedAtMillis,
+                                targetDate = notice.appeal.date,
+                                targetKey = ExamNotificationEngine.identity(notice.appeal),
+                                targetTitle = notice.appeal.subjectName,
+                                changes = listOf(NotificationFieldChange(
+                                    "Stato", "Disponibile", "Non più pubblicato"))
+                            )
+                        },
+                        onDismissRemoved = { notice ->
+                            store.dismissRemovedExamNotice(notice.id)
+                            removedExamNotices = store.removedExamNotices()
                         }
                     )
                     examCourse != null -> {
@@ -1144,6 +1313,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                             onOpenPlanner = ::openExamPlanner,
                             onOpenAppeal = {
                                 examPlannerAppeal = it
+                                examPlannerAppealAvailable = true
                                 examPlannerNote = store.examNote(it)
                             },
                             onToggleSavedAppeal = ::toggleSavedExamAppeal,
@@ -1265,6 +1435,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                         onOpenPlanner = ::openExamPlanner,
                         onOpenAppeal = {
                             examPlannerAppeal = it
+                            examPlannerAppealAvailable = true
                             examPlannerNote = store.examNote(it)
                         },
                         onToggleSavedAppeal = ::toggleSavedExamAppeal,

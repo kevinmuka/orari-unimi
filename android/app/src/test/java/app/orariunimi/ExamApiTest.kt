@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
+import java.nio.file.Files
 
 class ExamApiTest {
     @Test fun parsesAndSortsPublicExamResponseWithOptionalFields() {
@@ -59,5 +60,28 @@ class ExamApiTest {
 
         assertEquals(1, appeals.size)
         assertTrue(appeals.none { it.id == "invalid" })
+    }
+
+    @Test fun automaticExamRefreshReusesTwoMinuteCache() {
+        val directory = Files.createTempDirectory("exam-api-cache").toFile()
+        var now = 1_000L
+        var calls = 0
+        val cacheEvents = mutableListOf<Boolean>()
+        try {
+            val cache = ResponseCache(directory, clockMillis = { now })
+            val api = ExamApi(cache = cache, clockMillis = { now }, transport = { _, _ ->
+                calls++
+                "[]"
+            }, loadObserver = cacheEvents::add)
+            api.refreshAppealsIfStale("FAA", ExamWindow.ALL)
+            api.refreshAppealsIfStale("FAA", ExamWindow.ALL)
+            assertEquals(1, calls)
+            now += 121_000L
+            api.refreshAppealsIfStale("FAA", ExamWindow.ALL)
+            assertEquals(2, calls)
+            assertEquals(listOf(false, true, false), cacheEvents)
+        } finally {
+            directory.deleteRecursively()
+        }
     }
 }

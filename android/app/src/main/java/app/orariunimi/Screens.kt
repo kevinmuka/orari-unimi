@@ -56,6 +56,7 @@ import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.EventAvailable
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
@@ -752,7 +753,7 @@ fun SettingsScreen(
             notificationPreferences.enabled, onNotificationsEnabled) }
         if (notificationPreferences.enabled) {
             item { NavigationSettingCard(Icons.Outlined.NotificationsActive, "Impostazioni notifiche",
-                "Scegli variazioni, promemoria e aggiornamenti.", onOpenNotificationSettings) }
+                "Scegli lezioni, appelli, promemoria e aggiornamenti.", onOpenNotificationSettings) }
         }
         item {
             Spacer(Modifier.height(6.dp))
@@ -780,12 +781,80 @@ fun SettingsScreen(
 }
 
 @Composable
+fun NotificationChangeDetailsScreen(
+    entry: AppNotificationEntry,
+    onOpenTarget: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 30.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Text(entry.targetTitle ?: entry.title, style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold)
+            Text(entry.message, Modifier.padding(top = 6.dp), style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (entry.changes.isNotEmpty()) {
+            item {
+                Text("COSA È CAMBIATO", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            }
+            items(entry.changes, key = { "${it.label}:${it.before}:${it.after}" }) { change ->
+                Surface(shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Column(Modifier.fillMaxWidth().padding(15.dp)) {
+                        Text(change.label.uppercase(italian), style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.Bold)
+                        Row(Modifier.fillMaxWidth().padding(top = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Text(change.before, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("→", Modifier.padding(horizontal = 10.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold)
+                            Text(change.after, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+        }
+        if (entry.targetDate != null || entry.targetKey != null) item {
+            FilledTonalButton(onClick = onOpenTarget, modifier = Modifier.fillMaxWidth()) {
+                Icon(if (entry.type == AppNotificationType.EXAM_CHANGE ||
+                    entry.type == AppNotificationType.EXAM_REGISTRATION_REMINDER)
+                    Icons.Outlined.EventAvailable else Icons.Outlined.CalendarMonth,
+                    contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(if (entry.type == AppNotificationType.EXAM_CHANGE ||
+                    entry.type == AppNotificationType.EXAM_REGISTRATION_REMINDER)
+                    "Apri appello" else "Apri nel calendario")
+            }
+        }
+    }
+}
+
+@Composable
 fun NotificationSettingsScreen(
     notificationPreferences: NotificationPreferences,
-    onImportantChanges: () -> Unit,
+    lessonDiagnostics: SyncDiagnosticState,
+    examDiagnostics: SyncDiagnosticState,
+    checkingLessons: Boolean,
+    checkingExams: Boolean,
+    onLessonChanges: () -> Unit,
+    onExamChanges: () -> Unit,
+    onExamRegistrationOpenReminders: () -> Unit,
+    onExamRegistrationCloseReminders: () -> Unit,
+    onExamRegistrationCloseLeadDays: (Int) -> Unit,
     onLessonReminders: () -> Unit,
     onAppUpdates: () -> Unit,
-    onReminderMinutes: (Int) -> Unit
+    onReminderMinutes: (Int) -> Unit,
+    onCheckLessons: () -> Unit,
+    onCheckExams: () -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp),
@@ -799,9 +868,22 @@ fun NotificationSettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(10.dp))
         }
-        item { SettingCard(Icons.Outlined.NotificationsActive, "Variazioni importanti",
-            "Avvisa per annullamenti e cambi di data, ora, aula, docente o note.",
-            notificationPreferences.importantChanges, onImportantChanges) }
+        item { SettingCard(Icons.Outlined.NotificationsActive, "Variazioni delle lezioni",
+            "Avvisa per lezioni rimosse, annullate o cambiate in data, ora, aula, docente o note.",
+            notificationPreferences.lessonChanges, onLessonChanges) }
+        item { SettingCard(Icons.Outlined.EventAvailable, "Variazioni degli appelli",
+            "Avvisa quando un appello salvato cambia data, ora, luogo, docente, iscrizioni o altri dettagli.",
+            notificationPreferences.examChanges, onExamChanges) }
+        item {
+            ExamRegistrationReminderSettingCard(
+                openEnabled = notificationPreferences.examRegistrationOpenReminders,
+                closeEnabled = notificationPreferences.examRegistrationCloseReminders,
+                closeLeadDays = notificationPreferences.examRegistrationCloseLeadDays,
+                onOpenChange = onExamRegistrationOpenReminders,
+                onCloseChange = onExamRegistrationCloseReminders,
+                onCloseLeadDays = onExamRegistrationCloseLeadDays
+            )
+        }
         item {
             LessonReminderSettingCard(
                 enabled = notificationPreferences.lessonReminders,
@@ -813,7 +895,156 @@ fun NotificationSettingsScreen(
         item { SettingCard(Icons.Outlined.SystemUpdate, "Aggiornamenti dell'app",
             "Avviso silenzioso quando viene pubblicata una nuova versione.",
             notificationPreferences.appUpdates, onAppUpdates) }
+        item {
+            SyncDiagnosticsPanel(
+                lessonState = lessonDiagnostics,
+                examState = examDiagnostics,
+                checkingLessons = checkingLessons,
+                checkingExams = checkingExams,
+                onCheckLessons = onCheckLessons,
+                onCheckExams = onCheckExams
+            )
+        }
     }
+}
+
+@Composable
+private fun ExamRegistrationReminderSettingCard(
+    openEnabled: Boolean,
+    closeEnabled: Boolean,
+    closeLeadDays: Int,
+    onOpenChange: () -> Unit,
+    onCloseChange: () -> Unit,
+    onCloseLeadDays: (Int) -> Unit
+) {
+    ElevatedCard(shape = RoundedCornerShape(22.dp)) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer,
+                    modifier = Modifier.size(42.dp)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.EventAvailable, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                    }
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Iscrizioni agli appelli", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(3.dp))
+                    Text("Promemoria per gli appelli salvati.", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            HorizontalDivider(Modifier.padding(horizontal = 18.dp))
+            ReminderToggleRow("Apertura iscrizioni", "Avvisa il giorno in cui diventano disponibili.",
+                openEnabled, onOpenChange)
+            HorizontalDivider(Modifier.padding(horizontal = 18.dp))
+            ReminderToggleRow("Scadenza iscrizioni", "Avvisa prima della chiusura.",
+                closeEnabled, onCloseChange)
+            if (closeEnabled) {
+                Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, bottom = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(1, 3, 7).forEach { days ->
+                        FilterChip(
+                            selected = closeLeadDays == days,
+                            onClick = { onCloseLeadDays(days) },
+                            label = { Text(if (days == 1) "1 giorno" else "$days giorni") }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReminderToggleRow(
+    title: String,
+    description: String,
+    checked: Boolean,
+    onChange: () -> Unit
+) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onChange)
+        .padding(horizontal = 18.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(description, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.width(10.dp))
+        Switch(checked = checked, onCheckedChange = { onChange() })
+    }
+}
+
+@Composable
+private fun SyncDiagnosticsPanel(
+    lessonState: SyncDiagnosticState,
+    examState: SyncDiagnosticState,
+    checkingLessons: Boolean,
+    checkingExams: Boolean,
+    onCheckLessons: () -> Unit,
+    onCheckExams: () -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().padding(top = 3.dp)) {
+        Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }
+            .padding(horizontal = 5.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Stato sincronizzazione", style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Diagnostica locale", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+            }
+            Icon(if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                contentDescription = if (expanded) "Nascondi diagnostica" else "Mostra diagnostica",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (expanded) {
+            Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                Column(Modifier.fillMaxWidth().padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    DiagnosticRow("Lezioni", lessonState, checkingLessons, onCheckLessons)
+                    HorizontalDivider()
+                    DiagnosticRow("Appelli", examState, checkingExams, onCheckExams)
+                    Text("I dati restano sul dispositivo e servono solo a verificare i controlli automatici.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticRow(
+    title: String,
+    state: SyncDiagnosticState,
+    checking: Boolean,
+    onCheck: () -> Unit
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(diagnosticSummary(state), style = MaterialTheme.typography.bodySmall,
+                color = if (state.lastError != null) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant)
+            if (state.lastSuccessMillis > 0) Text(
+                "${state.sourceCount} sorgenti · ${state.networkRequests} rete · ${state.cacheHits} cache",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
+        }
+        IconButton(onClick = onCheck, enabled = !checking) {
+            if (checking) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            else Icon(Icons.Outlined.Refresh, contentDescription = "Controlla ora $title")
+        }
+    }
+}
+
+private fun diagnosticSummary(state: SyncDiagnosticState): String = when {
+    state.lastError != null -> state.lastError
+    state.lastSuccessMillis == 0L -> "Nessun controllo completato"
+    else -> "Ultimo controllo ${Instant.ofEpochMilli(state.lastSuccessMillis)
+        .atZone(ZoneId.systemDefault()).format(updateDateTime)} · ${state.changesFound} variazioni"
 }
 
 @Composable

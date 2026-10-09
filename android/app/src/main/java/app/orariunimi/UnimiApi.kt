@@ -25,7 +25,8 @@ class UnimiApi(
     private val baseUrl: String = "https://orari-be.divsi.unimi.it/AgendaWeb/Orario/",
     private val cache: ResponseCache? = null,
     private val clockMillis: () -> Long = System::currentTimeMillis,
-    private val transport: ((path: String, encoded: String, get: Boolean) -> String)? = null
+    private val transport: ((path: String, encoded: String, get: Boolean) -> String)? = null,
+    private val scheduleLoadObserver: ((cacheHit: Boolean) -> Unit)? = null
 ) {
     private val dateFormat = DateTimeFormatter.ofPattern("dd-MM-yyyy")
 
@@ -143,10 +144,6 @@ class UnimiApi(
 
     private fun loadSavedLessons(saved: List<SavedSubject>, force: Boolean): ScheduleSnapshot {
         if (saved.isEmpty()) return ScheduleSnapshot(emptyList(), clockMillis())
-        if (!force) {
-            cachedSavedBatches(saved, SCHEDULE_FRESH_MAX_AGE)?.let { return it }
-            cachedSavedSubjects(saved, SCHEDULE_FRESH_MAX_AGE)?.let { return it }
-        }
         return mergeSnapshots(savedRequests(saved).map { loadSnapshot(it, force) })
     }
 
@@ -228,7 +225,10 @@ class UnimiApi(
 
     private fun loadSnapshot(request: ScheduleRequest, force: Boolean): ScheduleSnapshot {
         val startedAt = clockMillis()
-        if (!force) cachedSnapshot(request, SCHEDULE_FRESH_MAX_AGE)?.let { return it }
+        if (!force) cachedSnapshot(request, SCHEDULE_FRESH_MAX_AGE)?.let {
+            scheduleLoadObserver?.invoke(true)
+            return it
+        }
         val lock = scheduleLocks.computeIfAbsent(request.cacheKey) { Any() }
         return synchronized(lock) {
             val existing = cache?.readEntry(request.cacheKey, SCHEDULE_OFFLINE_MAX_AGE)
@@ -236,11 +236,13 @@ class UnimiApi(
                 val age = (clockMillis() - existing.storedAtMillis).coerceAtLeast(0)
                 // Also coalesce concurrent forced refreshes that started before this response was saved.
                 if (existing.storedAtMillis >= startedAt || !force && age <= SCHEDULE_FRESH_MAX_AGE) {
+                    scheduleLoadObserver?.invoke(true)
                     return@synchronized ScheduleSnapshot(parseLessons(existing.value), existing.storedAtMillis)
                 }
             }
             val response = fetch(request.path, request.encoded, get = false)
             val storedAt = cache?.write(request.cacheKey, response) ?: clockMillis()
+            scheduleLoadObserver?.invoke(false)
             ScheduleSnapshot(parseLessons(response), storedAt)
         }
     }

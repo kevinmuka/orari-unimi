@@ -63,10 +63,15 @@ internal fun examAppealMatches(
 
 class ExamApi(
     private val baseUrl: String = "https://work.unimi.it/foProssimiEsami/json/",
-    private val cache: ResponseCache? = null
+    private val cache: ResponseCache? = null,
+    private val clockMillis: () -> Long = System::currentTimeMillis,
+    private val transport: ((courseCode: String, window: ExamWindow) -> String)? = null,
+    private val loadObserver: ((cacheHit: Boolean) -> Unit)? = null
 ) {
     private companion object {
         const val OFFLINE_MAX_AGE = 24L * 60 * 60 * 1000
+        const val FRESH_MAX_AGE = 2L * 60 * 1000
+        val requestLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
     }
 
     fun cachedAppeals(courseCode: String, window: ExamWindow): ExamSnapshot? {
@@ -75,9 +80,35 @@ class ExamApi(
     }
 
     fun refreshAppeals(courseCode: String, window: ExamWindow): ExamSnapshot {
-        val response = fetch(courseCode, window)
-        val storedAt = cache?.write(cacheKey(courseCode, window), response) ?: System.currentTimeMillis()
-        return ExamSnapshot(parseExamAppeals(response, courseCode), storedAt)
+        return loadAppeals(courseCode, window, force = true)
+    }
+
+    fun refreshAppealsIfStale(courseCode: String, window: ExamWindow): ExamSnapshot =
+        loadAppeals(courseCode, window, force = false)
+
+    private fun loadAppeals(courseCode: String, window: ExamWindow, force: Boolean): ExamSnapshot {
+        val key = cacheKey(courseCode, window)
+        val startedAt = clockMillis()
+        if (!force) cache?.readEntry(key, FRESH_MAX_AGE)?.let { entry ->
+            loadObserver?.invoke(true)
+            return ExamSnapshot(parseExamAppeals(entry.value, courseCode), entry.storedAtMillis)
+        }
+        val lock = requestLocks.computeIfAbsent(key) { Any() }
+        return synchronized(lock) {
+            val existing = cache?.readEntry(key, OFFLINE_MAX_AGE)
+            if (existing != null) {
+                val age = (clockMillis() - existing.storedAtMillis).coerceAtLeast(0)
+                if (existing.storedAtMillis >= startedAt || !force && age <= FRESH_MAX_AGE) {
+                    loadObserver?.invoke(true)
+                    return@synchronized ExamSnapshot(
+                        parseExamAppeals(existing.value, courseCode), existing.storedAtMillis)
+                }
+            }
+            val response = fetch(courseCode, window)
+            val storedAt = cache?.write(key, response) ?: clockMillis()
+            loadObserver?.invoke(false)
+            ExamSnapshot(parseExamAppeals(response, courseCode), storedAt)
+        }
     }
 
     private fun cacheKey(courseCode: String, window: ExamWindow): String =
@@ -85,6 +116,7 @@ class ExamApi(
 
     private fun fetch(courseCode: String, window: ExamWindow): String {
         require(courseCode.matches(Regex("[A-Za-z0-9]+"))) { "Codice del corso non valido." }
+        transport?.let { return it(courseCode, window) }
         val path = buildString {
             append(courseCode.uppercase())
             window.suffix?.let { append('/').append(it) }

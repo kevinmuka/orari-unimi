@@ -49,6 +49,45 @@ si apre “I miei appelli” e allo scoccare della mezzanotte mentre l'app è at
 gli appelli con una data precedente a quella corrente vengono eliminati insieme
 alla rispettiva nota.
 
+## Notifiche delle variazioni
+
+Nelle Preferenze l'utente può attivare **Variazioni degli appelli** in modo
+indipendente dalle variazioni delle lezioni. Il controllo riguarda soltanto gli
+appelli salvati nei promemoria: aggiungere o rimuovere corsi preferiti e
+insegnamenti seguiti non crea notifiche. Anche il salvataggio o la rimozione di
+un appello è una scelta locale e serve soltanto a inizializzare una nuova
+fotografia di riferimento.
+
+Per gli appelli già presenti nella fotografia vengono rilevati cambi di data,
+ora, luogo, docente, fascia alfabetica, tipo di prova, tipo di appello, apertura
+o chiusura delle iscrizioni, descrizioni e codici dell'insegnamento. Un appello
+scomparso deve mancare in due fotografie valide consecutive prima di essere
+segnalato. Errori o risultati parziali non sostituiscono la fotografia
+precedente. L'implementazione completa, compresi frequenza, deduplicazione e
+futura migrazione a un backend, è descritta in
+[NOTIFICATIONS.md](NOTIFICATIONS.md) e [SCHEDULE_SYNC.md](SCHEDULE_SYNC.md).
+
+Toccando una notifica si apre il dettaglio della variazione con i valori prima
+e dopo. Se un appello manca in due fotografie valide consecutive, viene rimosso
+dai promemoria e la nota associata viene cancellata. La sezione **I miei
+appelli** mantiene comunque un riquadro **Da verificare** con i dati dell'appello
+finché l'utente non conferma di averlo visto; cancellare la notifica non elimina
+questo riquadro.
+
+## Promemoria delle iscrizioni
+
+Le Preferenze offrono due opzioni indipendenti per gli appelli salvati:
+
+- avviso alle 09:00 del giorno di apertura delle iscrizioni;
+- avviso alle 09:00 di 1, 3 o 7 giorni prima della chiusura.
+
+I lavori sono locali e non effettuano richieste aggiuntive. Ogni aggiornamento
+valido degli appelli confronta nuovamente le date e lascia invariato, sostituisce
+o cancella il lavoro corrispondente. Prima di mostrare il promemoria, il worker
+verifica che l'appello sia ancora salvato e che la data pubblicata sia ancora
+quella prevista. Come per gli altri lavori WorkManager, Android può ritardare
+l'esecuzione per batteria, Doze o politiche del produttore.
+
 ## Cache e aggiornamento
 
 Aprendo un corso viene mostrata subito una risposta recente presente nella cache
@@ -70,5 +109,6 @@ che UNIMI la renda disponibile nel servizio.
   vuoto, come fa la pagina ufficiale.
 - Il servizio non espone un collegamento autenticato per iscriversi all'appello:
   l'iscrizione continua a essere effettuata tramite Unimia.
-- Non esiste un campo esplicito per un appello annullato. Un futuro sistema di
-  notifiche dovrà confermare una sparizione in più controlli prima di segnalarla.
+- Non esiste un campo esplicito per un appello annullato. Il sistema di
+  notifiche tratta quindi la scomparsa come un segnale incerto e la conferma in
+  due controlli validi consecutivi prima di segnalarla.

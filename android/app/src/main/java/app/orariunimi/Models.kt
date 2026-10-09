@@ -51,13 +51,31 @@ data class FollowedExamSubject(
 
 data class NotificationPreferences(
     val enabled: Boolean = false,
-    val importantChanges: Boolean = false,
+    val lessonChanges: Boolean = false,
+    val examChanges: Boolean = false,
+    val examRegistrationOpenReminders: Boolean = false,
+    val examRegistrationCloseReminders: Boolean = false,
+    val examRegistrationCloseLeadDays: Int = 3,
     val lessonReminders: Boolean = false,
     val appUpdates: Boolean = false,
     val reminderMinutes: Int = 30
 )
 
-enum class AppNotificationType { IMPORTANT_CHANGE, LESSON_REMINDER, APP_UPDATE }
+enum class AppNotificationType {
+    LESSON_CHANGE,
+    EXAM_CHANGE,
+    EXAM_REGISTRATION_REMINDER,
+    LESSON_REMINDER,
+    APP_UPDATE,
+    /** Kept only to render inbox entries written by versions up to 1.7.0. */
+    IMPORTANT_CHANGE
+}
+
+data class NotificationFieldChange(
+    val label: String,
+    val before: String,
+    val after: String
+)
 
 data class AppNotificationEntry(
     val id: String,
@@ -66,7 +84,16 @@ data class AppNotificationEntry(
     val message: String,
     val timestampMillis: Long,
     val targetDate: LocalDate? = null,
+    val targetKey: String? = null,
+    val targetTitle: String? = null,
+    val changes: List<NotificationFieldChange> = emptyList(),
     val read: Boolean = false
+)
+
+data class RemovedExamNotice(
+    val id: String,
+    val appeal: ExamAppeal,
+    val detectedAtMillis: Long
 )
 
 data class Lesson(

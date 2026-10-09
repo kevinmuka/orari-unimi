@@ -7,6 +7,7 @@ import java.io.File
 import java.time.LocalDate
 
 data class NotificationBaseline(
+    val selectionKey: String = "",
     val lessons: List<Lesson>,
     val missingCounts: Map<String, Int> = emptyMap(),
     val consecutiveEmptyResponses: Int = 0
@@ -23,6 +24,7 @@ class NotificationBaselineStore(context: Context) {
             val lessons = root.optJSONArray("lessons") ?: JSONArray()
             val missing = root.optJSONObject("missingCounts") ?: JSONObject()
             NotificationBaseline(
+                selectionKey = root.optString("selectionKey"),
                 lessons = (0 until lessons.length()).mapNotNull { lessons.optJSONObject(it)?.toLesson() },
                 missingCounts = missing.keys().asSequence().associateWith { missing.optInt(it) },
                 consecutiveEmptyResponses = root.optInt("consecutiveEmptyResponses", 0)
@@ -35,6 +37,7 @@ class NotificationBaselineStore(context: Context) {
         val lessons = JSONArray().apply { baseline.lessons.forEach { put(it.toJson()) } }
         val missing = JSONObject().apply { baseline.missingCounts.forEach { (key, value) -> put(key, value) } }
         val root = JSONObject()
+            .put("selectionKey", baseline.selectionKey)
             .put("lessons", lessons)
             .put("missingCounts", missing)
             .put("consecutiveEmptyResponses", baseline.consecutiveEmptyResponses)

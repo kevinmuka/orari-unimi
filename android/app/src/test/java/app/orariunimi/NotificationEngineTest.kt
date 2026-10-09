@@ -69,6 +69,15 @@ class NotificationEngineTest {
             allowSystemNotification = false, appInForeground = true))
     }
 
+    @Test fun lessonSelectionKeyIgnoresOrderButChangesWithTheSavedSelection() {
+        val first = SavedSubject("2026", "A", "A")
+        val second = SavedSubject("2026", "B", "B")
+        assertEquals(NotificationEngine.lessonSelectionKey(listOf(first, second)),
+            NotificationEngine.lessonSelectionKey(listOf(second, first)))
+        assertTrue(NotificationEngine.lessonSelectionKey(listOf(first)) !=
+            NotificationEngine.lessonSelectionKey(listOf(first, second)))
+    }
+
     @Test fun reminderDelayTargetsConfiguredLeadTimeAndNeverBecomesNegative() {
         val start = LocalDateTime.of(2026, 9, 18, 10, 0)
         assertEquals(30L * 60 * 1000,

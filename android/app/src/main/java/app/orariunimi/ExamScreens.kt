@@ -54,6 +54,7 @@ import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -636,12 +637,15 @@ private fun ExamFreshness(
 @Composable
 fun ExamPlannerScreen(
     savedAppeals: List<ExamAppeal>,
+    removedNotices: List<RemovedExamNotice>,
     appealsWithNotes: Set<Pair<String, String>>,
     showSaved: Boolean,
     onShowSaved: (Boolean) -> Unit,
     showModeSelector: Boolean = true,
     embedded: Boolean = false,
-    onSelectAppeal: (ExamAppeal) -> Unit
+    onSelectAppeal: (ExamAppeal) -> Unit,
+    onSelectRemoved: (RemovedExamNotice) -> Unit,
+    onDismissRemoved: (RemovedExamNotice) -> Unit
 ) {
     val today = LocalDate.now()
     var month by remember { mutableStateOf(YearMonth.from(today)) }
@@ -693,6 +697,17 @@ fun ExamPlannerScreen(
                         Icon(Icons.Outlined.ChevronRight, contentDescription = "Mese successivo")
                     }
                 }
+            }
+        }
+        if (removedNotices.isNotEmpty()) {
+            item {
+                Text("DA VERIFICARE", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+            }
+            items(removedNotices, key = { it.id }) { notice ->
+                RemovedExamNoticeCard(notice,
+                    onOpen = { onSelectRemoved(notice) },
+                    onDismiss = { onDismissRemoved(notice) })
             }
         }
         if (showModeSelector) item {
@@ -888,6 +903,31 @@ private fun RowScope.ExamPlannerDay(
 }
 
 @Composable
+private fun RemovedExamNoticeCard(
+    notice: RemovedExamNotice,
+    onOpen: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Card(onClick = onOpen, shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+        Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.WarningAmber, contentDescription = null,
+                tint = MaterialTheme.colorScheme.onErrorContainer)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(notice.appeal.subjectName, style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    fontWeight = FontWeight.SemiBold)
+                Text("L’appello del ${formatShortDate(notice.appeal.date)} non è più pubblicato.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer)
+            }
+            TextButton(onClick = onDismiss) { Text("Ho capito") }
+        }
+    }
+}
+
+@Composable
 private fun ExamPlannerAppeal(appeal: ExamAppeal, hasNote: Boolean, onClick: () -> Unit) {
     Card(
         onClick = onClick,
@@ -933,6 +973,7 @@ private fun ExamPlannerAppeal(appeal: ExamAppeal, hasNote: Boolean, onClick: () 
 fun ExamAppealDetailsScreen(
     appeal: ExamAppeal,
     saved: Boolean,
+    available: Boolean = true,
     savedNote: String,
     onSaveNote: (ExamAppeal, String) -> Unit,
     onToggleSaved: (ExamAppeal) -> Unit,
@@ -954,6 +995,18 @@ fun ExamAppealDetailsScreen(
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 30.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        if (!available) item {
+            Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.errorContainer) {
+                Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.WarningAmber, contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onErrorContainer)
+                    Spacer(Modifier.width(10.dp))
+                    Text("Questo appello non risulta più pubblicato da UNIMI.",
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        }
         item {
             Text(appeal.subjectName, style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold)
@@ -988,7 +1041,7 @@ fun ExamAppealDetailsScreen(
                 }
             }
         }
-        item {
+        if (available) item {
             FilledTonalButton(
                 onClick = { onAddToCalendar(appeal) },
                 modifier = Modifier.fillMaxWidth()

@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.EventAvailable
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.SystemUpdate
@@ -267,13 +268,19 @@ private fun NotificationSwipeRow(
 
 @Composable
 private fun entryColor(type: AppNotificationType): Color = when (type) {
-    AppNotificationType.IMPORTANT_CHANGE -> MaterialTheme.colorScheme.errorContainer
+    AppNotificationType.LESSON_CHANGE, AppNotificationType.IMPORTANT_CHANGE ->
+        MaterialTheme.colorScheme.errorContainer
+    AppNotificationType.EXAM_CHANGE -> MaterialTheme.colorScheme.secondaryContainer
+    AppNotificationType.EXAM_REGISTRATION_REMINDER -> MaterialTheme.colorScheme.tertiaryContainer
     AppNotificationType.LESSON_REMINDER -> MaterialTheme.colorScheme.primaryContainer
     AppNotificationType.APP_UPDATE -> MaterialTheme.colorScheme.tertiaryContainer
 }
 
 private fun entryIcon(type: AppNotificationType) = when (type) {
-    AppNotificationType.IMPORTANT_CHANGE -> Icons.Outlined.NotificationsActive
+    AppNotificationType.LESSON_CHANGE, AppNotificationType.IMPORTANT_CHANGE ->
+        Icons.Outlined.NotificationsActive
+    AppNotificationType.EXAM_CHANGE -> Icons.Outlined.EventAvailable
+    AppNotificationType.EXAM_REGISTRATION_REMINDER -> Icons.Outlined.EventAvailable
     AppNotificationType.LESSON_REMINDER -> Icons.Outlined.Schedule
     AppNotificationType.APP_UPDATE -> Icons.Outlined.SystemUpdate
 }

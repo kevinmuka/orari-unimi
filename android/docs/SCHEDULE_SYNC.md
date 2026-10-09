@@ -1,9 +1,9 @@
-# Sincronizzazione locale degli orari
+# Sincronizzazione locale di lezioni e appelli
 
-Questo documento descrive il comportamento introdotto in Orari UNIMI 1.5.4,
-le scelte tecniche che lo sostengono e il punto di partenza per un futuro
-backend con notifiche push. Va aggiornato quando cambia uno dei tempi, delle
-chiavi cache o delle garanzie elencate qui.
+Questo documento descrive la sincronizzazione locale introdotta in Orari UNIMI
+1.5.4 e poi estesa agli appelli salvati, le scelte tecniche che la sostengono e
+il punto di partenza per un futuro backend con notifiche push. Va aggiornato
+quando cambia uno dei tempi, delle chiavi cache o delle garanzie elencate qui.
 
 ## Obiettivi funzionali
 
@@ -14,7 +14,7 @@ La sincronizzazione deve rispettare contemporaneamente quattro requisiti:
 3. evitare che apertura dell'app, schermata del calendario e WorkManager
    ripetano contemporaneamente la stessa richiesta;
 4. non trasformare una risposta incompleta o un errore del portale in una
-   cancellazione di lezioni.
+   cancellazione di lezioni o appelli.
 
 Dal punto di vista dell'utente, aprire un calendario mostra prima la copia
 locale e avvia un aggiornamento automatico solo quando l'ultima risposta valida
@@ -28,7 +28,8 @@ ore, accompagnata dallo stato offline già mostrato dall'interfaccia.
 | --- | --- |
 | Calendario aperto automaticamente | usa la risposta se ha al massimo 2 minuti, altrimenti aggiorna |
 | Ritorno dell'app in primo piano | il worker immediato usa la stessa finestra di 2 minuti |
-| Controllo periodico delle notifiche | richiesto ogni 15 minuti da WorkManager |
+| Controllo periodico delle lezioni | richiesto ogni 15 minuti da WorkManager se sono attive variazioni o promemoria |
+| Controllo periodico degli appelli | richiesto ogni 15 minuti se sono attive variazioni o promemoria di iscrizione |
 | Refresh manuale del calendario | forza la rete |
 | Pull-to-refresh del centro notifiche | forza la rete |
 | Calendario offline | conservato per un massimo di 24 ore |
@@ -53,9 +54,17 @@ client non deve quindi descrivere i 15 minuti come una scadenza garantita.
 - `OrariApp.kt` mostra prima la cache, distingue apertura automatica e refresh
   manuale e aggiorna il widget dopo una nuova fotografia valida.
 - `NotificationWork.kt` pianifica sincronizzazioni, confronta le fotografie e
-  programma il promemoria della prossima lezione.
+  programma i promemoria della prossima lezione e delle iscrizioni.
 - `NotificationBaselineStore.kt` conserva la fotografia usata per rilevare le
-  variazioni.
+  variazioni delle lezioni e la firma degli insegnamenti salvati.
+- `ExamNotificationBaselineStore.kt` conserva separatamente appelli, contatori
+  delle assenze e firma degli appelli salvati.
+- `NotificationEngine.kt` ed `ExamNotificationEngine.kt` confrontano le
+  fotografie senza accedere alla rete o allo stato Android.
+- `ExamRegistrationReminders.kt` calcola in modo deterministico i lavori per
+  apertura e scadenza delle iscrizioni.
+- `SyncDiagnosticsStore.kt` conserva soltanto sul dispositivo esiti e contatori
+  dell'ultimo controllo di ciascuna categoria.
 - `LocalStore.kt` conserva preferenze, inbox e identificativo del promemoria
   programmato.
 - `ScheduleWidgetProvider.kt` e `ScheduleWidgetLessonsService.kt` leggono
@@ -131,11 +140,93 @@ protezioni:
 - gli identificativi stabili impediscono di archiviare due volte la stessa
   variazione;
 - cambiare gli insegnamenti salvati azzera la baseline, evitando che una scelta
-  dell'utente venga scambiata per una variazione UNIMI.
+  dell'utente venga scambiata per una variazione UNIMI;
+- la firma della selezione viene ricontrollata dopo la rete, evitando che un
+  worker già avviato produca un falso positivo se l'utente salva o rimuove un
+  insegnamento durante il recupero.
 
 La richiesta continua a usare `all_events=1`. Limitare l'intervallo temporale
 potrebbe ridurre il payload, ma richiede prima una verifica del contratto del
 portale e una strategia che non perda modifiche a lezioni più lontane.
+
+## Sincronizzazione degli appelli salvati
+
+Le notifiche degli appelli osservano soltanto gli appelli che l'utente ha
+salvato nei promemoria. Preferire un corso di laurea o seguire un insegnamento
+per cercarne gli appelli non modifica la baseline e non genera un avviso.
+
+Dato un insieme di `A` appelli salvati, il worker estrae e ordina i `C` codici
+di corso di laurea distinti. Interroga una volta ciascun corso, in sequenza, e
+filtra poi la risposta sugli identificativi salvati. Il costo massimo di un
+ciclo è quindi `C` richieste e non `A`; se non ci sono appelli salvati il costo
+è zero. Le richieste sequenziali evitano picchi verso il portale.
+
+`ExamApi` mantiene per ogni coppia corso-intervallo una cache con finestra di
+freschezza di due minuti e un lock condiviso nel processo. Interfaccia e worker
+riutilizzano quindi una risposta appena ricevuta e due recuperi concorrenti
+della stessa sorgente vengono accorpati. Il refresh manuale forza la rete, ma
+viene comunque accorpato a un altro refresh forzato già in corso.
+
+Il worker adotta una politica tutto-o-niente: se una delle `C` sorgenti fallisce
+per rete, HTTP o parsing, la baseline non viene aggiornata. La prima fotografia
+valida e ogni cambiamento della selezione inizializzano una nuova baseline senza
+notifiche. La firma della selezione viene inoltre ricontrollata dopo la rete,
+così un salvataggio o una rimozione avvenuti durante il recupero non possono
+essere confusi con una modifica pubblicata da UNIMI.
+
+Per un appello con identità stabile vengono confrontati data, ora, luogo,
+docente, intervallo alfabetico, tipo di prova, tipo di appello, apertura e
+chiusura delle iscrizioni, nome dell'insegnamento, nome del corso di laurea e
+codici dell'insegnamento. Una risposta complessivamente vuota viene rinviata
+una volta; un singolo appello scomparso deve risultare assente in due fotografie
+valide consecutive. Se il portale sostituisce anche l'identificativo, il client
+non tenta un'associazione incerta: dopo le conferme segnala che il vecchio
+appello non è più disponibile.
+
+Dopo la conferma della scomparsa, l'appello viene eliminato dall'elenco attivo,
+insieme alla nota, e i suoi lavori di iscrizione vengono cancellati. Una copia
+minima dell'appello viene conservata tra gli avvisi **Da verificare** fino alla
+presa visione esplicita. Questo registro è separato dall'inbox delle notifiche,
+quindi cancellare una notifica non nasconde una rimozione ancora da verificare.
+
+## Promemoria delle iscrizioni
+
+I due promemoria sono indipendenti e facoltativi. Il primo viene calcolato alle
+09:00 del giorno `registrationOpen`; il secondo alle 09:00 di 1, 3 o 7 giorni
+prima di `registrationClose`. Per ogni coppia appello-tipo esiste un solo
+`OneTimeWorkRequest`, con nome stabile derivato dall'identità dell'appello.
+
+La mappa dei lavori e dei rispettivi istanti viene conservata nelle preferenze.
+Durante la riconciliazione:
+
+- un lavoro identico viene lasciato invariato;
+- una data cambiata sostituisce il lavoro con lo stesso nome;
+- una data rimossa, un appello deselezionato o un appello non più pubblicato
+  cancellano il lavoro;
+- la disattivazione della relativa preferenza cancella tutti i lavori di quel
+  tipo;
+- prima di pubblicare l'avviso, il worker rilegge l'appello e la data attesa,
+  così un lavoro ormai superato termina senza notificare.
+
+I promemoria non aprono connessioni di rete. Se almeno uno è abilitato, il
+worker degli appelli resta periodico anche quando le notifiche delle variazioni
+sono disattivate, perché deve ricevere le eventuali nuove date pubblicate da
+UNIMI e riprogrammare i lavori.
+
+## Diagnostica e controlli manuali
+
+Ogni worker registra l'ultimo tentativo, l'ultimo successo, l'errore sintetico,
+il numero di sorgenti logiche, quante sono state richieste in rete, quante sono
+state servite dalla cache e quante variazioni sono state trovate. Gli observer
+di `UnimiApi` ed `ExamApi` distinguono cache e rete nel punto effettivo in cui
+viene caricata ciascuna sorgente; i contatori non sono dedotti dall'età finale
+della fotografia.
+
+La riga **Stato sincronizzazione**, chiusa inizialmente in fondo alle
+impostazioni, legge questi dati locali. I comandi **Controlla ora** creano un
+worker forzato soltanto per la categoria scelta e attendono fino a 30 secondi
+prima di lasciare l'esecuzione in background. Non viene introdotto alcun
+servizio di telemetria.
 
 ## Promemoria della prossima lezione
 
@@ -183,8 +274,16 @@ un promemoria già programmato.
 - nuovo recupero dopo la scadenza;
 - una sola chiamata per due refresh forzati concorrenti.
 
-`NotificationEngineTest.kt` copre le protezioni contro falsi positivi e il
-calcolo dell'istante del promemoria. Prima di una release vanno eseguiti almeno:
+`NotificationEngineTest.kt` copre le protezioni contro falsi positivi delle
+lezioni, la firma della selezione e il calcolo dell'istante del promemoria.
+`ExamNotificationEngineTest.kt` verifica tutti i campi osservati, le due
+conferme per una scomparsa, il mancato avviso per una nuova selezione e la
+deduplicazione dei corsi. `ExamApiTest.kt` verifica anche che la cache di due
+minuti eviti una seconda richiesta e che, alla scadenza, la rete venga
+interrogata di nuovo. `NotificationWorkflowIntegrationTest.kt` attraversa il
+flusso completo di conferma della rimozione e cancellazione dei promemoria,
+verifica la riprogrammazione dopo una nuova scadenza e l'indipendenza dei due
+toggle. Prima di una release vanno eseguiti almeno:
 
 ```text
 ./gradlew test
@@ -209,13 +308,15 @@ UNIMI AgendaWeb -> backend di polling -> fotografia/delta -> app
 Quando inizierà quel lavoro:
 
 1. estrarre da `UnimiApi` un'interfaccia `ScheduleDataSource` che restituisca
-   `ScheduleSnapshot` per calendario singolo e selezione personale;
+   `ScheduleSnapshot` per calendario singolo e selezione personale, e da
+   `ExamApi` un'analoga sorgente per corso di laurea;
 2. mantenere `ResponseCache`, visualizzazione immediata e refresh manuale come
    fallback locale;
 3. lasciare nel client `NotificationEngine` durante la prima fase, confrontando
    anche le fotografie ricevute dal backend;
 4. usare sul backend la stessa chiave canonica: anno, tipo di sorgente, codici
-   ordinati e percorsi del corso;
+   ordinati e percorsi del corso per le lezioni; codice del corso e intervallo
+   per gli appelli;
 5. associare gli utenti soltanto a topic o identificativi anonimi dei calendari,
    senza memorizzare nomi, orari personali o account universitari;
 6. deduplicare il polling tra tutti gli utenti e applicare una scadenza agli
@@ -239,6 +340,8 @@ Quando inizierà quel lavoro:
   identificativi anonimi dei calendari osservati.
 - Il widget continua a leggere dati locali già validati.
 - Una variazione viene archiviata e notificata una sola volta.
+- Salvataggi, rimozioni, preferiti e altre azioni esplicite dell'utente non
+  vengono presentati come variazioni pubblicate da UNIMI.
 - La disattivazione delle notifiche rimuove iscrizioni e lavori locali.
 - Il fallback locale non deve moltiplicare le richieste quando il backend è
   sano.
