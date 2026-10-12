@@ -10,6 +10,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
@@ -19,6 +20,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -104,6 +106,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
@@ -986,8 +989,18 @@ private fun SyncDiagnosticsPanel(
     onCheckExams: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = tween(180),
+        label = "sync-diagnostics-arrow"
+    )
     Column(Modifier.fillMaxWidth().padding(top = 3.dp)) {
-        Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }
+        Row(Modifier.fillMaxWidth().clickable(
+            interactionSource = interactionSource,
+            indication = null,
+            onClick = { expanded = !expanded }
+        )
             .padding(horizontal = 5.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Stato sincronizzazione", style = MaterialTheme.typography.labelLarge,
@@ -995,20 +1008,20 @@ private fun SyncDiagnosticsPanel(
                 Text("Diagnostica locale", style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
             }
-            Icon(if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+            Icon(Icons.Outlined.KeyboardArrowDown,
                 contentDescription = if (expanded) "Nascondi diagnostica" else "Mostra diagnostica",
+                modifier = Modifier.graphicsLayer { rotationZ = arrowRotation },
                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (expanded) {
             Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                 Column(Modifier.fillMaxWidth().padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    DiagnosticRow("Lezioni", lessonState, checkingLessons, onCheckLessons)
+                    DiagnosticRow("Lezioni", "gruppo di orari", "gruppi di orari", lessonState,
+                        checkingLessons, onCheckLessons)
                     HorizontalDivider()
-                    DiagnosticRow("Appelli", examState, checkingExams, onCheckExams)
-                    Text("I dati restano sul dispositivo e servono solo a verificare i controlli automatici.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    DiagnosticRow("Appelli", "corso di laurea", "corsi di laurea", examState,
+                        checkingExams, onCheckExams)
                 }
             }
         }
@@ -1018,6 +1031,8 @@ private fun SyncDiagnosticsPanel(
 @Composable
 private fun DiagnosticRow(
     title: String,
+    sourceSingular: String,
+    sourcePlural: String,
     state: SyncDiagnosticState,
     checking: Boolean,
     onCheck: () -> Unit
@@ -1028,10 +1043,15 @@ private fun DiagnosticRow(
             Text(diagnosticSummary(state), style = MaterialTheme.typography.bodySmall,
                 color = if (state.lastError != null) MaterialTheme.colorScheme.error
                     else MaterialTheme.colorScheme.onSurfaceVariant)
-            if (state.lastSuccessMillis > 0) Text(
-                "${state.sourceCount} sorgenti · ${state.networkRequests} rete · ${state.cacheHits} cache",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
+            if (state.lastSuccessMillis > 0) {
+                val sourceLabel = if (state.sourceCount == 1) sourceSingular else sourcePlural
+                Text("Controllati: ${state.sourceCount} $sourceLabel",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
+                Text("Da UNIMI: ${state.networkRequests} · dalla cache: ${state.cacheHits}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
+            }
         }
         IconButton(onClick = onCheck, enabled = !checking) {
             if (checking) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)

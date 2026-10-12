@@ -169,6 +169,7 @@ fun OrariApp(
     var notificationEntries by remember { mutableStateOf(store.notifications()) }
     var notificationRefreshing by remember { mutableStateOf(false) }
     var notificationDetailEntry by remember { mutableStateOf<AppNotificationEntry?>(null) }
+    var notificationDetailReturnsToCenter by remember { mutableStateOf(false) }
     var lessonDiagnostics by remember { mutableStateOf(diagnosticsStore.read(SyncDiagnosticKind.LESSONS)) }
     var examDiagnostics by remember { mutableStateOf(diagnosticsStore.read(SyncDiagnosticKind.EXAMS)) }
     var checkingLessonDiagnostics by remember { mutableStateOf(false) }
@@ -296,6 +297,7 @@ fun OrariApp(
         examError = null
         examPlannerAppeal = null
         examPlannerOpen = false
+        notificationDetailReturnsToCenter = false
         notificationDetailEntry = entry.takeUnless { it.type == AppNotificationType.APP_UPDATE }
         store.markNotificationsRead()
         notificationEntries = store.notifications()
@@ -917,7 +919,11 @@ fun OrariApp(
         calendarRefreshing = false
         busy = false
         when {
-            notificationDetailEntry != null -> notificationDetailEntry = null
+            notificationDetailEntry != null -> {
+                notificationDetailEntry = null
+                if (notificationDetailReturnsToCenter) notificationsOpen = true
+                notificationDetailReturnsToCenter = false
+            }
             examPlannerAppeal != null -> {
                 examPlannerAppeal = null
                 examPlannerNote = ""
@@ -1073,6 +1079,7 @@ fun OrariApp(
                         val entry = notificationDetailEntry!!
                         NotificationChangeDetailsScreen(entry = entry, onOpenTarget = {
                             notificationDetailEntry = null
+                            notificationDetailReturnsToCenter = false
                             when (entry.type) {
                                 AppNotificationType.EXAM_CHANGE,
                                 AppNotificationType.EXAM_REGISTRATION_REMINDER -> {
@@ -1175,6 +1182,7 @@ fun OrariApp(
                                 AppNotificationType.EXAM_CHANGE,
                                 AppNotificationType.EXAM_REGISTRATION_REMINDER -> {
                                     notificationsOpen = false
+                                    notificationDetailReturnsToCenter = true
                                     notificationDetailEntry = entry
                                 }
                                 else -> if (saved.isNotEmpty()) showCalendar(
@@ -1242,6 +1250,7 @@ fun OrariApp(
                             examPlannerNote = store.examNote(it)
                         },
                         onSelectRemoved = { notice ->
+                            notificationDetailReturnsToCenter = false
                             notificationDetailEntry = AppNotificationEntry(
                                 id = notice.id,
                                 type = AppNotificationType.EXAM_CHANGE,
