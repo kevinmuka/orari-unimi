@@ -14,8 +14,8 @@ cui compaiono nell'app:
    giornaliera, al calendario mensile e agli insegnamenti preferiti;
 2. **Appelli** apre subito il calendario degli appelli salvati e la loro lista
    cronologica; la ricerca è un'azione nell'intestazione;
-3. **Esplora** cerca corsi di laurea, docenti e insegnamenti per anno accademico,
-   e aule indipendentemente dall'anno;
+3. **Esplora** cerca corsi di laurea, docenti e insegnamenti per anno accademico;
+   **Aule** elenca edifici, aule e planning indipendentemente dall'anno;
 4. **Preferiti** raccoglie gli insegnamenti e i corsi di laurea salvati.
 
 L'avvio normale e l'apertura dal widget portano a Lezioni.
@@ -48,7 +48,7 @@ apre dal calendario delle lezioni del corso, e Indietro torna a quel calendario.
 
 | Area | Funzioni |
 | --- | --- |
-| Esplora | anno accademico, ricerca corsi/docenti/insegnamenti, ricerca aule per sede o nome, colori delle lauree, salvataggio corso |
+| Esplora | anno accademico, ricerca corsi/docenti/insegnamenti, edifici con indirizzo e numero di aule, occupazione e planning aule, colori delle lauree, salvataggio corso |
 | Corso | percorsi e insegnamenti, calendario, agenda, appelli, salvataggio corso e insegnamenti |
 | Lezioni | orario settimanale iniziale, agenda giorno/settimana, calendario aggregato giorno/mese, accesso agli insegnamenti preferiti |
 | Calendari | giorno corrente, navigazione giorno/settimana/mese, weekend facoltativo, cache e refresh manuale |

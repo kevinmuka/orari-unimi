@@ -17,9 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronLeft
@@ -48,7 +46,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import java.time.Instant
 import java.time.LocalDate
@@ -66,16 +66,11 @@ private val exploreLabels = listOf("Corsi", "Docenti", "Insegnamenti", "Aule")
 
 @Composable
 fun ExploreCategoryTabs(selectedIndex: Int, onSelect: (Int) -> Unit) {
-    val listState = rememberLazyListState()
-    LaunchedEffect(selectedIndex) { listState.animateScrollToItem((selectedIndex - 1).coerceAtLeast(0)) }
-    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        LazyRow(
-            state = listState,
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
-        ) {
-            items(exploreLabels.size) { index ->
+    Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Row(Modifier.fillMaxWidth().padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            exploreLabels.forEachIndexed { index, label ->
                 val selected = index == selectedIndex
                 val container by animateColorAsState(
                     if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
@@ -87,17 +82,17 @@ fun ExploreCategoryTabs(selectedIndex: Int, onSelect: (Int) -> Unit) {
                     label = "explore-category-text"
                 )
                 Box(
-                    Modifier.height(42.dp)
+                    Modifier.weight(1f).height(48.dp)
                         .background(container, RoundedCornerShape(14.dp))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
                             onClick = { onSelect(index) }
-                        ).padding(horizontal = 16.dp),
+                        ).padding(horizontal = 3.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(exploreLabels[index], color = content,
-                        style = MaterialTheme.typography.labelLarge,
+                    Text(label, color = content, textAlign = TextAlign.Center,
+                        fontSize = 11.sp, lineHeight = 13.sp, maxLines = 2,
                         fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
                 }
             }
@@ -108,11 +103,11 @@ fun ExploreCategoryTabs(selectedIndex: Int, onSelect: (Int) -> Unit) {
 @Composable
 fun RoomSearchScreen(
     query: String,
-    results: List<UnimiRoom>?,
+    results: List<UnimiBuilding>?,
     loading: Boolean,
     error: String?,
     onQuery: (String) -> Unit,
-    onOpenRoom: (UnimiRoom) -> Unit,
+    onOpenBuilding: (UnimiBuilding) -> Unit,
     onRetry: () -> Unit,
     onCategory: (Int) -> Unit
 ) {
@@ -127,12 +122,11 @@ fun RoomSearchScreen(
                 AppScreenHeader("Esplora", "Corsi, docenti, insegnamenti e aule UNIMI")
                 Spacer(Modifier.height(16.dp))
                 ExploreCategoryTabs(3, onCategory)
-                AppSearchField(query, onQuery, "Cerca un'aula o una sede",
+                AppSearchField(query, onQuery, "Cerca un edificio o un'aula",
                     modifier = Modifier.padding(top = 10.dp))
-                if (query.isNotBlank() && results != null && !loading) {
+                if (results != null && !loading) {
                     Text(
-                        if (results.size == 50) "Primi 50 risultati · affina la ricerca"
-                        else "${results.size} ${if (results.size == 1) "aula" else "aule"}",
+                        "${results.size} ${if (results.size == 1) "edificio" else "edifici"}",
                         Modifier.padding(top = 9.dp), style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -145,17 +139,13 @@ fun RoomSearchScreen(
                 AppEmptyState("Aule non disponibili", error, action = "Riprova", onAction = onRetry,
                     icon = Icons.Outlined.MeetingRoom)
             }
-            query.isBlank() -> item {
-                AppEmptyState("Trova un'aula", "Cerca per nome, sede o codice. Lo stato di occupazione si carica quando apri l'aula.",
-                    icon = Icons.Outlined.MeetingRoom)
-            }
             results == null -> item { AppLoadingState() }
             results.isEmpty() -> item {
-                AppEmptyState("Nessuna aula trovata", "Prova con un'altra sede o un altro nome.",
+                AppEmptyState("Nessun edificio trovato", "Prova con un'altra sede o un'altra aula.",
                     icon = Icons.Outlined.MeetingRoom)
             }
-            else -> items(results, key = { it.code }) { room ->
-                Card(onClick = { focus.clearFocus(); onOpenRoom(room) },
+            else -> items(results, key = { it.code }) { building ->
+                Card(onClick = { focus.clearFocus(); onOpenBuilding(building) },
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 15.dp),
@@ -168,12 +158,13 @@ fun RoomSearchScreen(
                         }
                         Spacer(Modifier.width(13.dp))
                         Column(Modifier.weight(1f)) {
-                            Text("Aula ${room.name}", style = MaterialTheme.typography.titleSmall,
+                            Text(building.name, style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold, maxLines = 2,
                                 overflow = TextOverflow.Ellipsis)
                             Text(buildString {
-                                append(room.building)
-                                room.capacity?.let { append(" · $it posti") }
+                                append(building.address.ifBlank { "Indirizzo non pubblicato" })
+                                append(" · ${building.rooms.size} ")
+                                append(if (building.rooms.size == 1) "aula" else "aule")
                             }, style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -185,6 +176,100 @@ fun RoomSearchScreen(
             }
         }
     }
+}
+
+@Composable
+fun RoomBuildingScreen(
+    building: UnimiBuilding,
+    planning: BuildingPlanning?,
+    loading: Boolean,
+    error: String?,
+    onOpenRoom: (UnimiRoom) -> Unit,
+    onRefresh: () -> Unit
+) {
+    var now by remember { mutableStateOf(LocalDateTime.now(roomZone)) }
+    LaunchedEffect(building.code) {
+        while (true) {
+            now = LocalDateTime.now(roomZone)
+            delay(60_000)
+        }
+    }
+    val shown = planning?.takeIf { it.buildingCode == building.code && it.date == now.toLocalDate() }
+    LazyColumn(modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item {
+            Column {
+                Text(building.name, style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.Place, contentDescription = null, Modifier.size(17.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(5.dp))
+                    Text(building.address.ifBlank { "Indirizzo non pubblicato" },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text("${building.rooms.size} ${if (building.rooms.size == 1) "aula" else "aule"}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 5.dp))
+            }
+        }
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(if (shown == null) "Occupazione non disponibile"
+                    else if (shown.offline) "Planning salvato sul dispositivo"
+                    else "Secondo il planning · aggiornato ${Instant.ofEpochMilli(shown.sourceUpdatedAtMillis).atZone(roomZone).format(roomUpdated)}",
+                    Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                IconButton(onClick = onRefresh) {
+                    Icon(Icons.Outlined.Refresh, contentDescription = "Aggiorna occupazione")
+                }
+            }
+            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+        }
+        if (error != null && shown == null) item {
+            Text(error, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error)
+        }
+        items(building.rooms, key = { it.code }) { room ->
+            val roomPlanning = shown?.forRoom(room)
+            Card(onClick = { onOpenRoom(room) }, shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 15.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    RoomTrafficLight(roomPlanning, now)
+                    Spacer(Modifier.width(13.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Aula ${room.name}", style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold)
+                        Text(buildString {
+                            append(when {
+                                roomPlanning == null || roomPlanning.offline -> "Stato non disponibile"
+                                roomPlanning.currentEvent(now) != null -> "Occupata ora"
+                                else -> "Libera ora"
+                            })
+                            room.capacity?.let { append(" · $it posti") }
+                        }, style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(Icons.Outlined.ChevronRight, contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RoomTrafficLight(planning: RoomPlanning?, now: LocalDateTime) {
+    val color = when {
+        planning == null || planning.offline -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f)
+        planning.currentEvent(now) != null -> MaterialTheme.colorScheme.error
+        else -> Color(0xFF41BA83)
+    }
+    Box(Modifier.size(15.dp).background(color, RoundedCornerShape(50)))
 }
 
 @Composable
@@ -259,11 +344,19 @@ fun RoomDetailScreen(
             }
             else -> {
                 item {
-                    RoomStatusCard(shown, now, onRefresh)
-                }
-                item {
-                    Text("Impegni della giornata", style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Impegni della giornata", style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold)
+                            Text(if (shown.offline) "Planning salvato sul dispositivo"
+                                else "Aggiornato ${Instant.ofEpochMilli(shown.sourceUpdatedAtMillis).atZone(roomZone).format(roomUpdated)}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        IconButton(onClick = onRefresh) {
+                            Icon(Icons.Outlined.Refresh, contentDescription = "Aggiorna planning")
+                        }
+                    }
                 }
                 if (shown.events.isEmpty()) item {
                     AppEmptyState("Nessun impegno pubblicato",
@@ -273,49 +366,6 @@ fun RoomDetailScreen(
                     RoomEventCard(event)
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun RoomStatusCard(planning: RoomPlanning, now: LocalDateTime, onRefresh: () -> Unit) {
-    val isToday = planning.date == now.toLocalDate()
-    val outdated = planning.offline || now.atZone(roomZone).toInstant().toEpochMilli() -
-        planning.sourceUpdatedAtMillis > 30L * 60 * 1000
-    val current = planning.currentEvent(now)
-    val next = planning.nextEvent(now)
-    val title = when {
-        !isToday -> "${planning.events.count { !it.cancelled }} impegni programmati"
-        outdated -> "Disponibilità da verificare"
-        current != null -> "Occupata fino alle ${current.end.format(roomTime)}"
-        else -> "Libera secondo il planning"
-    }
-    val detail = when {
-        planning.offline -> "Dati salvati sul dispositivo: il portale non è raggiungibile."
-        isToday && outdated -> "Il planning pubblicato potrebbe non essere aggiornato."
-        isToday && current == null && next != null -> "Prossimo impegno alle ${next.start.format(roomTime)}."
-        isToday && current == null -> "Nessun altro impegno pubblicato oggi."
-        else -> "Occupazione prevista dagli eventi pubblicati da UNIMI."
-    }
-    Card(shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
-        Column(Modifier.fillMaxWidth().padding(18.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer)
-                IconButton(onClick = onRefresh) {
-                    Icon(Icons.Outlined.Refresh, contentDescription = "Aggiorna occupazione",
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                }
-            }
-            Text(detail, style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSecondaryContainer)
-            Spacer(Modifier.height(10.dp))
-            val updated = Instant.ofEpochMilli(planning.sourceUpdatedAtMillis).atZone(roomZone)
-            Text("Planning aggiornato: ${updated.format(roomUpdated)}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.76f))
         }
     }
 }

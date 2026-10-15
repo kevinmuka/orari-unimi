@@ -1,6 +1,5 @@
 package app.orariunimi
 
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
@@ -19,7 +18,15 @@ data class UnimiRoom(
     val name: String,
     val buildingCode: String,
     val building: String,
-    val capacity: Int?
+    val capacity: Int?,
+    val address: String = ""
+)
+
+data class UnimiBuilding(
+    val code: String,
+    val name: String,
+    val address: String,
+    val rooms: List<UnimiRoom>
 )
 
 data class RoomEvent(
@@ -50,17 +57,41 @@ data class RoomPlanning(
         }
 }
 
-/** Search is entirely local; opening an aula is the first planning request. */
+data class BuildingPlanning(
+    val buildingCode: String,
+    val date: LocalDate,
+    val coveredRooms: Set<String>,
+    val eventsByRoom: Map<String, List<RoomEvent>>,
+    val sourceUpdatedAtMillis: Long,
+    val cachedAtMillis: Long,
+    val offline: Boolean = false
+) {
+    fun forRoom(room: UnimiRoom): RoomPlanning? =
+        if (room.code !in coveredRooms) null else RoomPlanning(
+            room.code, date, eventsByRoom[room.code].orEmpty(), sourceUpdatedAtMillis,
+            cachedAtMillis, offline
+        )
+}
+
+/** Search is entirely local and always returns buildings, even for a room-name match. */
 class RoomSearchIndex(rooms: List<UnimiRoom>) {
-    private val indexed = rooms.map { room ->
-        room to normalized("aula ${room.name} ${room.building} ${room.code}")
+    val buildings = rooms.groupBy { it.buildingCode }.map { (code, inBuilding) ->
+        UnimiBuilding(code, inBuilding.first().building,
+            inBuilding.firstOrNull { it.address.isNotBlank() }?.address.orEmpty(),
+            inBuilding.sortedBy { it.name.lowercase(Locale.ITALIAN) })
+    }.sortedBy { it.name.lowercase(Locale.ITALIAN) }
+    private val indexed = buildings.map { building ->
+        building to normalized(buildString {
+            append("${building.name} ${building.address} ${building.code} ")
+            building.rooms.forEach { append("aula ${it.name} ${it.code} ") }
+        })
     }
 
-    fun search(query: String, limit: Int = 50): List<UnimiRoom> {
+    fun search(query: String): List<UnimiBuilding> {
         val words = normalized(query).split(' ').filter(String::isNotBlank)
-        if (words.isEmpty()) return emptyList()
+        if (words.isEmpty()) return buildings
         return indexed.asSequence().filter { (_, text) -> words.all(text::contains) }
-            .take(limit).map { it.first }.toList()
+            .map { it.first }.toList()
     }
 
     private fun normalized(value: String): String = Normalizer.normalize(
@@ -86,12 +117,14 @@ class RoomApi(
     }
 
     fun catalog(force: Boolean = false): List<UnimiRoom> {
-        val key = "rooms|catalog|$baseUrl"
+        val key = "rooms|catalog-v2|$baseUrl"
         if (!force) cache.read(key, CATALOG_FRESH)?.let { body ->
             runCatching { parseCatalog(body) }.getOrNull()?.let { return it }
         }
         return try {
-            val response = fetch("combo.php", "sw=rooms_", get = true)
+            // Without sede[] AgendaWeb sends metadata for every building, but no events.
+            val response = fetch("rooms_call.php", encode(roomFields(LocalDate.now(
+                java.time.ZoneId.of("Europe/Rome")))), get = false)
             parseCatalog(response).also { cache.write(key, response) }
         } catch (cause: Exception) {
             cache.read(key, CATALOG_OFFLINE)?.let { parseCatalog(it) } ?: throw cause
@@ -99,23 +132,46 @@ class RoomApi(
     }
 
     fun cachedPlanning(room: UnimiRoom, date: LocalDate): RoomPlanning? =
-        cache.readEntry(planningKey(room, date), PLANNING_OFFLINE)?.let {
-            parsePlanning(it.value, room, date, it.storedAtMillis, offline = true)
+        cachedBuildingPlanning(room.buildingCode, date)?.forRoom(room)
+            ?: cache.readEntry(planningKey(room, date), PLANNING_OFFLINE)?.let {
+                parsePlanning(it.value, room, date, it.storedAtMillis, offline = true)
+            }
+
+    fun cachedBuildingPlanning(buildingCode: String, date: LocalDate): BuildingPlanning? =
+        cache.readEntry(buildingKey(buildingCode, date), PLANNING_OFFLINE)?.let { entry ->
+            runCatching { parseBuildingPlanning(entry.value, buildingCode, date,
+                entry.storedAtMillis, offline = true) }.getOrNull()
         }
+
+    fun buildingPlanning(building: UnimiBuilding, date: LocalDate, force: Boolean = false): BuildingPlanning {
+        val key = buildingKey(building.code, date)
+        if (!force) cache.readEntry(key, freshAge(date))?.let { entry ->
+            runCatching { parseBuildingPlanning(entry.value, building.code, date, entry.storedAtMillis) }
+                .getOrNull()?.let { return it }
+        }
+        val fields = roomFields(date) + ("sede[]" to building.code)
+        return try {
+            val response = fetch("rooms_call.php", encode(fields), get = false)
+            val parsed = parseBuildingPlanning(response, building.code, date, clockMillis())
+            parsed.copy(cachedAtMillis = cache.write(key, response) ?: clockMillis())
+        } catch (cause: Exception) {
+            cachedBuildingPlanning(building.code, date) ?: throw cause
+        }
+    }
 
     fun planning(room: UnimiRoom, date: LocalDate, force: Boolean = false): RoomPlanning {
         val key = planningKey(room, date)
-        val freshAge = if (date == LocalDate.now(java.time.ZoneId.of("Europe/Rome"))) TODAY_FRESH
-            else OTHER_DAY_FRESH
-        if (!force) cache.readEntry(key, freshAge)?.let { entry ->
-            runCatching { parsePlanning(entry.value, room, date, entry.storedAtMillis) }
-                .getOrNull()?.let { return it }
+        if (!force) {
+            cache.readEntry(buildingKey(room.buildingCode, date), freshAge(date))?.let { entry ->
+                runCatching { parseBuildingPlanning(entry.value, room.buildingCode, date,
+                    entry.storedAtMillis).forRoom(room) }.getOrNull()?.let { return it }
+            }
+            cache.readEntry(key, freshAge(date))?.let { entry ->
+                runCatching { parsePlanning(entry.value, room, date, entry.storedAtMillis) }
+                    .getOrNull()?.let { return it }
+            }
         }
-        val fields = listOf(
-            "form-type" to "rooms", "view" to "rooms", "include" to "rooms",
-            "sede[]" to room.buildingCode, "aula[]" to room.code,
-            "date" to date.format(dateFormat), "_lang" to "it"
-        )
+        val fields = roomFields(date) + listOf("sede[]" to room.buildingCode, "aula[]" to room.code)
         return try {
             val response = fetch("rooms_call.php", encode(fields), get = false)
             val parsed = parsePlanning(response, room, date, clockMillis())
@@ -124,54 +180,85 @@ class RoomApi(
         } catch (cause: Exception) {
             cache.readEntry(key, PLANNING_OFFLINE)?.let {
                 parsePlanning(it.value, room, date, it.storedAtMillis, offline = true)
-            } ?: throw cause
+            } ?: cachedBuildingPlanning(room.buildingCode, date)?.forRoom(room) ?: throw cause
         }
     }
+
+    private fun roomFields(date: LocalDate) = listOf(
+        "form-type" to "rooms", "view" to "rooms", "include" to "rooms",
+        "date" to date.format(dateFormat), "_lang" to "it"
+    )
+
+    private fun freshAge(date: LocalDate) =
+        if (date == LocalDate.now(java.time.ZoneId.of("Europe/Rome"))) TODAY_FRESH else OTHER_DAY_FRESH
+
+    private fun buildingKey(buildingCode: String, date: LocalDate) =
+        "rooms|building|$baseUrl|$buildingCode|$date"
 
     private fun planningKey(room: UnimiRoom, date: LocalDate) =
         "rooms|planning|$baseUrl|${room.code}|$date"
 
     private fun parseCatalog(body: String): List<UnimiRoom> {
-        val buildings = JSONArray(extractAgendaVariable(body, "elenco_sedi"))
-        val buildingNames = (0 until buildings.length()).mapNotNull { index ->
-            buildings.optJSONObject(index)?.let { it.optString("valore") to it.optString("label") }
-        }.toMap()
-        val groups = JSONObject(extractAgendaVariable(body, "elenco_aule"))
+        val groups = JSONObject(body).optJSONObject("area_rooms")
+            ?: throw IllegalStateException("Il catalogo delle aule non è disponibile.")
         return groups.keys().asSequence().flatMap { buildingCode ->
-            val rooms = groups.optJSONArray(buildingCode) ?: JSONArray()
-            (0 until rooms.length()).asSequence().mapNotNull { index ->
-                val value = rooms.optJSONObject(index) ?: return@mapNotNull null
-                val code = value.optString("valore")
-                val name = value.optString("label")
-                if (code.isBlank() || name.isBlank()) return@mapNotNull null
-                val codeOfBuilding = value.optString("sede_code").ifBlank { buildingCode }
-                UnimiRoom(
-                    code, name, codeOfBuilding,
-                    value.optString("sede_name").ifBlank { buildingNames[codeOfBuilding].orEmpty() },
-                    value.optInt("capacity").takeIf { it > 0 }
-                )
+            val rooms = groups.optJSONObject(buildingCode) ?: JSONObject()
+            rooms.keys().asSequence().mapNotNull { roomCode ->
+                val value = rooms.optJSONObject(roomCode) ?: return@mapNotNull null
+                val name = value.optString("room_name")
+                if (name.isBlank()) return@mapNotNull null
+                UnimiRoom(roomCode, name, buildingCode, value.optString("area"),
+                    value.optInt("capacity").takeIf { it > 0 },
+                    if (value.isNull("address")) "" else value.optString("address"))
             }
         }.distinctBy { it.code }.sortedWith(compareBy<UnimiRoom> { it.building.lowercase(Locale.ITALIAN) }
-            .thenBy { it.name.lowercase(Locale.ITALIAN) }).toList()
+            .thenBy { it.name.lowercase(Locale.ITALIAN) }).toList().also {
+                if (it.isEmpty()) throw IllegalStateException("Il catalogo delle aule è vuoto.")
+            }
+    }
+
+    private fun parseBuildingPlanning(
+        body: String, buildingCode: String, date: LocalDate, cachedAt: Long, offline: Boolean = false
+    ): BuildingPlanning {
+        val response = JSONObject(body)
+        val selected = response.optJSONObject("search_data")?.optJSONArray("sede")
+        if (selected == null || (0 until selected.length()).none { selected.optString(it) == buildingCode }) {
+            throw IllegalStateException("Il planning dell'edificio non è disponibile.")
+        }
+        val rooms = response.optJSONObject("all_rooms")
+            ?: response.optJSONObject("area_rooms")?.optJSONObject(buildingCode)
+            ?: throw IllegalStateException("Le aule dell'edificio non sono disponibili.")
+        val covered = rooms.keys().asSequence().toSet()
+        val events = parseEvents(response).filterKeys { it in covered }
+        return BuildingPlanning(buildingCode, date, covered, events,
+            sourceUpdatedAtMillis = sourceTimestamp(response, cachedAt),
+            cachedAtMillis = cachedAt, offline = offline)
     }
 
     private fun parsePlanning(
         body: String, room: UnimiRoom, date: LocalDate, cachedAt: Long, offline: Boolean = false
     ): RoomPlanning {
         val response = JSONObject(body)
-        if (!response.optJSONObject("rooms").let { it != null && it.has(room.code) }) {
+        if (!response.optJSONObject("all_rooms").let { it != null && it.has(room.code) }) {
             throw IllegalStateException("Il planning dell'aula non è disponibile.")
         }
-        val values = response.optJSONArray("events") ?: JSONArray()
-        val events = (0 until values.length()).mapNotNull { index ->
+        return RoomPlanning(room.code, date, parseEvents(response)[room.code].orEmpty(),
+            sourceUpdatedAtMillis = sourceTimestamp(response, cachedAt),
+            cachedAtMillis = cachedAt, offline = offline)
+    }
+
+    private fun parseEvents(response: JSONObject): Map<String, List<RoomEvent>> {
+        val values = response.optJSONArray("events") ?: return emptyMap()
+        return (0 until values.length()).mapNotNull { index ->
             val value = values.optJSONObject(index) ?: return@mapNotNull null
-            if (value.optString("CodiceAula") != room.code) return@mapNotNull null
+            val roomCode = value.optString("CodiceAula")
+            if (roomCode.isBlank()) return@mapNotNull null
             val start = runCatching { LocalTime.parse(value.optString("from")) }.getOrNull()
                 ?: return@mapNotNull null
             val end = runCatching { LocalTime.parse(value.optString("to")) }.getOrNull()
                 ?: return@mapNotNull null
             if (!end.isAfter(start)) return@mapNotNull null
-            RoomEvent(
+            roomCode to RoomEvent(
                 id = value.optString("id"),
                 title = value.optString("name").ifBlank { "Impegno in aula" },
                 type = value.optString("type"),
@@ -179,13 +266,13 @@ class RoomApi(
                 end = end,
                 cancelled = value.optString("Annullato") == "1"
             )
-        }.sortedWith(compareBy<RoomEvent> { it.start }.thenBy { it.end })
-        return RoomPlanning(room.code, date, events,
-            sourceUpdatedAtMillis = response.optLong("file_timestamp").takeIf { it > 0 }
-                ?.times(1000) ?: cachedAt,
-            cachedAtMillis = cachedAt,
-            offline = offline)
+        }.groupBy({ it.first }, { it.second }).mapValues { (_, events) ->
+            events.sortedWith(compareBy<RoomEvent> { it.start }.thenBy { it.end })
+        }
     }
+
+    private fun sourceTimestamp(response: JSONObject, cachedAt: Long) =
+        response.optLong("file_timestamp").takeIf { it > 0 }?.times(1000) ?: cachedAt
 
     private fun encode(fields: List<Pair<String, String>>): String = fields.joinToString("&") { (key, value) ->
         "${URLEncoder.encode(key, "UTF-8")}=${URLEncoder.encode(value, "UTF-8")}"

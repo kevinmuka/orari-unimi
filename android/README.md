@@ -27,11 +27,12 @@ può avere una nota locale,
 visibile e rimovibile dal relativo pannello di dettaglio. Origine dei dati,
 cache e limiti sono descritti in
 [docs/EXAMS.md](docs/EXAMS.md).
-In Esplora, **Aule** cerca sul catalogo locale per nome, sede o codice. Aprendo
-un'aula si vede il planning del giorno, con stato calcolato dagli eventi
-pubblicati e orario dell'ultimo aggiornamento. La disponibilità indica ciò che
-risulta dal planning, non la presenza fisica nell'aula. Endpoint, cache e limiti
-sono descritti in [docs/ROOMS.md](docs/ROOMS.md).
+In Esplora, **Aule** mostra tutti gli edifici con indirizzo e numero di aule;
+la ricerca è locale. Aprendo un edificio si vedono le sue aule e un indicatore
+di occupazione secondo il planning pubblicato. Il dettaglio dell'aula mostra
+gli impegni della giornata e permette di cambiare giorno. La disponibilità
+non misura la presenza fisica nell'aula. Endpoint, cache e limiti sono descritti
+in [docs/ROOMS.md](docs/ROOMS.md).
 Nelle Preferenze l'app controlla le release pubblicate su GitHub e, quando è
 disponibile una versione più recente, può scaricare e verificare l'APK prima di
 aprire l'installer di sistema. Android richiede sempre la conferma dell'utente

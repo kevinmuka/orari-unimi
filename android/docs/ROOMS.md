@@ -1,44 +1,48 @@
-# Ricerca e occupazione delle aule
+# Edifici, aule e occupazione
 
-La categoria **Aule** di Esplora è indipendente dall'anno accademico. Cerca per
-nome, sede o codice nell'elenco già scaricato sul dispositivo. Nessuna richiesta
-parte a ogni carattere digitato: il planning viene richiesto solo aprendo
-un'aula, cambiando data o toccando Aggiorna.
+In **Esplora → Aule** compaiono subito tutti gli edifici. La ricerca locale
+filtra gli edifici per nome, indirizzo, codice o nome di una loro aula. Ogni
+edificio mostra indirizzo e numero di aule; aprirlo mostra tutte le aule e la
+loro occupazione corrente. Aprire un'aula mostra gli impegni del giorno, con
+navigazione ai giorni precedenti e successivi. Se l'indirizzo non è pubblicato,
+l'app lo indica senza inventarne uno.
 
-## Dati pubblici di AgendaWeb
+## Sorgenti pubbliche di AgendaWeb
 
-Il catalogo arriva da `GET combo.php?sw=rooms_`. Le variabili JavaScript
-`elenco_sedi` ed `elenco_aule` contengono codici, nomi, sedi e, quando
-disponibile, capienza. Il dettaglio usa `POST rooms_call.php` con `form-type`,
-`view` e `include` impostati a `rooms`, un solo `sede[]`, un solo `aula[]`,
-`date` in formato `dd-MM-yyyy` e `_lang=it`.
+Il catalogo arriva da `POST rooms_call.php` con `form-type`, `view` e `include`
+impostati a `rooms`, data `dd-MM-yyyy`, `_lang=it` e nessun `sede[]`. In questo
+caso `area_rooms` include i metadati di tutte le sedi e aule (nome, indirizzo e
+capienza) ma non gli eventi. Il 15 ottobre 2026 erano presenti 76 edifici e
+535 aule; la risposta era circa 0,5 MB. Il catalogo precedente
+`combo.php?sw=rooms_` non forniva gli indirizzi.
 
-La risposta contiene `events` con `from`, `to`, `name`, `type`, `CodiceAula` e
-`Annullato`, oltre a `file_timestamp` per l'ultimo aggiornamento pubblicato.
-Un evento annullato resta leggibile nell'elenco ma non rende l'aula occupata.
-Il client verifica il codice aula restituito e filtra gli eventi su quel codice.
+Aprendo un edificio, una sola richiesta a `rooms_call.php` con il suo `sede[]`
+recupera il planning delle aule di quell'edificio per oggi. Per Celoria la
+risposta era circa 1,5 MB: interrogare ogni aula separatamente avrebbe
+moltiplicato inutilmente le richieste. `all_rooms` identifica le aule coperte;
+`events` contiene gli impegni, che il client associa tramite `CodiceAula`.
+Un'aula assente da `rooms` può comunque essere presente in `all_rooms` e avere
+zero impegni: per questo non usiamo `rooms` come elenco completo. Un evento
+con `Annullato=1` rimane visibile nel dettaglio ma non rende l'aula occupata.
 
-Il 15 ottobre 2026 il catalogo pubblico comprendeva 76 sedi e 535 aule. Una
-risposta per una sola aula pesava circa 0,5 MB; una per una sede di 32 aule
-circa 1,5 MB. Per questo non si interroga ogni aula nei risultati della ricerca
-e non si esegue alcun controllo periodico in background.
+Quando si apre un'aula, il client riusa il planning dell'edificio se è ancora
+fresco. Per un giorno diverso, oppure con il refresh manuale, chiede soltanto
+il planning della singola aula (`sede[]` più `aula[]`). Non partono richieste
+per ogni risultato della ricerca né controlli periodici in background.
 
 ## Stato e cache
 
-La dicitura **Libera secondo il planning** significa soltanto che nessun evento
-non annullato copre l'ora corrente. Non garantisce che l'aula sia aperta o
-fisicamente vuota. Dopo 30 minuti dall'aggiornamento indicato da UNIMI, oppure
-quando si mostra una risposta conservata dopo un errore di rete, lo stato
-diventa **Disponibilità da verificare**. La schermata mostra sempre l'ora
-dell'ultimo aggiornamento del planning e offre il refresh manuale.
+Il punto verde indica che nessun evento pubblicato copre l'ora corrente; il
+punto rosso indica un evento in corso. Entrambi descrivono **il planning
+pubblicato**, non la presenza fisica o l'apertura dell'aula. Se il planning
+non è disponibile, o si sta usando un ripiego offline, il punto è grigio.
+L'ora di pubblicazione di UNIMI resta visibile e il planning si può aggiornare
+manualmente. Il dettaglio dell'aula mostra gli impegni senza un riquadro
+separato di disponibilità.
 
 Il catalogo viene riusato per 24 ore e può essere usato fino a 14 giorni se
-il portale non risponde. Il planning del giorno corrente viene riusato per
-5 minuti; quello di altre date per un'ora. Una risposta già scaricata può
-servire da ripiego offline per 24 ore, segnalata come tale. La cache delle aule
-è separata da quella delle lezioni e degli appelli e limitata a 16 MB; i file
-meno recenti vengono rimossi automaticamente.
-
-Il planning è una fonte pubblicata da AgendaWeb, non un sensore di presenza.
-Orari, cancellazioni e disponibilità possono cambiare; quando serve una
-certezza operativa, va consultato il portale UNIMI.
+il portale non risponde. Il planning di oggi, sia per un edificio sia per
+un'aula, viene riusato per 5 minuti; quello di altri giorni per un'ora. Una
+risposta già scaricata può servire da ripiego offline per 24 ore, segnalata
+come tale. La cache delle aule è separata da quella delle lezioni e degli
+appelli e limitata a 16 MB; i file meno recenti vengono rimossi.
