@@ -275,7 +275,7 @@ class UnimiApi(
     private fun combo(year: String, page: String?, variable: String): Any {
         val fields = mutableListOf("sw" to "ec_", "aa" to year)
         if (page != null) fields += "page" to page
-        val json = extractVariable(request("combo.php", fields, get = true), variable)
+        val json = extractAgendaVariable(request("combo.php", fields, get = true), variable)
         return if (json.startsWith('[')) JSONArray(json) else JSONObject(json)
     }
 
@@ -328,42 +328,6 @@ class UnimiApi(
         } finally {
             connection.disconnect()
         }
-    }
-
-    private fun extractVariable(body: String, name: String): String {
-        val match = Regex("\\bvar\\s+${Regex.escape(name)}\\s*=").find(body)
-            ?: throw IllegalStateException("La risposta UNIMI non contiene $name.")
-        val start = body.indexOfFirstFrom(match.range.last + 1) { !it.isWhitespace() }
-        if (start < 0 || (body[start] != '[' && body[start] != '{')) {
-            throw IllegalStateException("Il formato di $name non è valido.")
-        }
-        val stack = ArrayDeque<Char>()
-        var quoted = false
-        var escaped = false
-        for (index in start until body.length) {
-            val char = body[index]
-            if (quoted) {
-                if (escaped) escaped = false
-                else if (char == '\\') escaped = true
-                else if (char == '"') quoted = false
-                continue
-            }
-            when (char) {
-                '"' -> quoted = true
-                '{' -> stack.addLast('}')
-                '[' -> stack.addLast(']')
-                '}', ']' -> {
-                    if (stack.removeLastOrNull() != char) throw IllegalStateException("Il formato di $name non è valido.")
-                    if (stack.isEmpty()) return body.substring(start, index + 1)
-                }
-            }
-        }
-        throw IllegalStateException("La risposta UNIMI per $name è incompleta.")
-    }
-
-    private fun String.indexOfFirstFrom(start: Int, predicate: (Char) -> Boolean): Int {
-        for (index in start until length) if (predicate(this[index])) return index
-        return -1
     }
 
     private fun repair(text: String): String {

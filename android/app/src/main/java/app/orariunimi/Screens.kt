@@ -150,6 +150,7 @@ fun SearchScreen(
     favorites: List<FavoriteCourse>,
     selectedSubjects: List<FavoriteSubject>,
     onYear: (AcademicYear) -> Unit, onKind: (SearchKind) -> Unit,
+    onRooms: () -> Unit,
     onQuery: (String) -> Unit, onSelect: (SearchItem) -> Unit,
     onToggleCourseFavorite: (SearchItem) -> Unit,
     onEditSubject: (SearchItem) -> Unit,
@@ -187,7 +188,7 @@ fun SearchScreen(
             Column(Modifier.fillMaxWidth()) {
                 AppScreenHeader(
                     title = "Esplora",
-                    subtitle = "Corsi, docenti e insegnamenti UNIMI"
+                    subtitle = "Corsi, docenti, insegnamenti e aule UNIMI"
                 )
                 Row(
                     Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 12.dp),
@@ -208,11 +209,9 @@ fun SearchScreen(
                             contentDescription = null, modifier = Modifier.size(18.dp))
                     }
                 }
-                AppSegmentedControl(
-                    options = SearchKind.entries.map { it.label },
-                    selectedIndex = SearchKind.entries.indexOf(kind),
-                    onSelected = { onKind(SearchKind.entries[it]) }
-                )
+                ExploreCategoryTabs(SearchKind.entries.indexOf(kind)) { index ->
+                    if (index == 3) onRooms() else onKind(SearchKind.entries[index])
+                }
                 AppSearchField(
                     value = query,
                     onValueChange = onQuery,

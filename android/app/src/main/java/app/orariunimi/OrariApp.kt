@@ -119,6 +119,10 @@ fun OrariApp(
     val responseCache = remember(context) { ResponseCache(File(context.cacheDir, "orari-responses")) }
     val api = remember(context, responseCache) { UnimiApi(cache = responseCache) }
     val examApi = remember(context, responseCache) { ExamApi(cache = responseCache) }
+    val roomCache = remember(context) {
+        ResponseCache(File(context.cacheDir, "orari-rooms"), maxBytes = 16L * 1024 * 1024)
+    }
+    val roomApi = remember(roomCache) { RoomApi(roomCache) }
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     var tab by remember { mutableStateOf(RootTab.fromIndex(initialTab)) }
@@ -153,6 +157,18 @@ fun OrariApp(
     var loadingYears by remember { mutableStateOf(true) }
     var kind by remember { mutableStateOf(SearchKind.COURSE) }
     var query by remember { mutableStateOf("") }
+    var exploringRooms by remember { mutableStateOf(false) }
+    var roomQuery by remember { mutableStateOf("") }
+    var roomCatalog by remember { mutableStateOf<List<UnimiRoom>?>(null) }
+    var roomCatalogLoading by remember { mutableStateOf(false) }
+    var roomCatalogError by remember { mutableStateOf<String?>(null) }
+    var roomCatalogRetry by remember { mutableIntStateOf(0) }
+    var selectedRoom by remember { mutableStateOf<UnimiRoom?>(null) }
+    var roomDay by remember { mutableStateOf(LocalDate.now(ZoneId.of("Europe/Rome"))) }
+    var roomPlanning by remember { mutableStateOf<RoomPlanning?>(null) }
+    var roomPlanningLoading by remember { mutableStateOf(false) }
+    var roomPlanningError by remember { mutableStateOf<String?>(null) }
+    var roomPlanningRetry by remember { mutableIntStateOf(0) }
     var entries by remember { mutableStateOf<Map<SearchKind, SearchIndex>>(emptyMap()) }
     var entriesAttempted by remember { mutableStateOf<Set<SearchKind>>(emptySet()) }
     var entriesRetry by remember { mutableIntStateOf(0) }
@@ -250,6 +266,7 @@ fun OrariApp(
             lessonMonthOpen = false
             calendar = null
             courseDetail = null
+            selectedRoom = null
             examCourse = null
             examSubject = null
             examCourseYear = null
@@ -273,6 +290,7 @@ fun OrariApp(
             lessonMonthOpen = false
             calendar = null
             courseDetail = null
+            selectedRoom = null
             examCourse = null
             examSubject = null
             examCourseYear = null
@@ -301,6 +319,7 @@ fun OrariApp(
         lessonMonthOpen = false
         calendar = null
         courseDetail = null
+        selectedRoom = null
         examCourse = null
         examSubject = null
         examCourseYear = null
@@ -333,12 +352,12 @@ fun OrariApp(
         }
     }
 
-    LaunchedEffect(year?.code, kind, tab, favoriteSection, examSearchOpen,
+    LaunchedEffect(year?.code, kind, tab, exploringRooms, favoriteSection, examSearchOpen,
         subjectSelectionTarget, entriesRetry) {
         val currentYear = year ?: return@LaunchedEffect
         val requestedKind = when {
             subjectSelectionTarget?.year == currentYear.code -> SearchKind.SUBJECT
-            tab == RootTab.EXPLORE -> kind
+            tab == RootTab.EXPLORE && !exploringRooms -> kind
             tab == RootTab.EXAMS && examSearchOpen -> SearchKind.COURSE
             tab == RootTab.FAVORITES && favoriteSection == FavoriteSection.SUBJECTS -> SearchKind.SUBJECT
             else -> return@LaunchedEffect
@@ -355,6 +374,54 @@ fun OrariApp(
         } catch (cause: Exception) {
             entriesAttempted = entriesAttempted + requestedKind
             error = cause.message ?: "Impossibile caricare l'elenco."
+        }
+    }
+
+    LaunchedEffect(tab, exploringRooms, roomCatalogRetry) {
+        if (tab != RootTab.EXPLORE || !exploringRooms || roomCatalog != null) return@LaunchedEffect
+        roomCatalogLoading = true
+        roomCatalogError = null
+        try {
+            roomCatalog = withContext(Dispatchers.IO) { roomApi.catalog() }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (cause: Exception) {
+            roomCatalogError = cause.message ?: "Impossibile caricare le aule."
+        } finally {
+            roomCatalogLoading = false
+        }
+    }
+
+    LaunchedEffect(selectedRoom?.code, roomDay, roomPlanningRetry) {
+        val room = selectedRoom ?: return@LaunchedEffect
+        val requestedDay = roomDay
+        val requestedRetry = roomPlanningRetry
+        roomPlanningLoading = true
+        roomPlanningError = null
+        try {
+            roomPlanning = withContext(Dispatchers.IO) {
+                runCatching { roomApi.cachedPlanning(room, requestedDay) }.getOrNull()
+            }
+            roomPlanning = withContext(Dispatchers.IO) {
+                roomApi.planning(room, requestedDay, force = requestedRetry > 0)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (cause: Exception) {
+            roomPlanningError = cause.message ?: "Impossibile caricare il planning dell'aula."
+        } finally {
+            if (selectedRoom?.code == room.code && roomDay == requestedDay &&
+                roomPlanningRetry == requestedRetry) {
+                roomPlanningLoading = false
+            }
+        }
+    }
+
+    val roomIndex = remember(roomCatalog) { roomCatalog?.let(::RoomSearchIndex) }
+    val roomResults by produceState<List<UnimiRoom>?>(null, roomQuery, roomIndex) {
+        if (roomQuery.isNotBlank() && roomIndex != null) {
+            delay(100)
+            value = withContext(Dispatchers.Default) { roomIndex.search(roomQuery) }
         }
     }
 
@@ -1022,21 +1089,25 @@ fun OrariApp(
                 settings = true
             }
             settings -> settings = false
-            else -> notificationsOpen = false
+            notificationsOpen -> notificationsOpen = false
+            selectedRoom != null -> {
+                selectedRoom = null
+                roomPlanningLoading = false
+            }
         }
         error = null
     }
 
-    BackHandler(enabled = notificationDetailEntry != null || examPlannerAppeal != null || examPlannerOpen || lessonMonthOpen || calendar != null || courseDetail != null || examCourse != null || examSearchOpen || subjectSelectionTarget != null || agendaOpen || settings ||
+    BackHandler(enabled = notificationDetailEntry != null || examPlannerAppeal != null || examPlannerOpen || lessonMonthOpen || calendar != null || courseDetail != null || selectedRoom != null || examCourse != null || examSearchOpen || subjectSelectionTarget != null || agendaOpen || settings ||
         notificationsOpen || notificationSettingsOpen) { goBack() }
 
     val showingRootTab = notificationDetailEntry == null && examPlannerAppeal == null && !examPlannerOpen && !lessonMonthOpen && calendar == null &&
-        courseDetail == null && examCourse == null && !agendaOpen && !settings &&
+        courseDetail == null && selectedRoom == null && examCourse == null && !agendaOpen && !settings &&
         !notificationsOpen && !notificationSettingsOpen
     val activeCatalogKind = when {
         subjectSelectionTarget?.year == year?.code -> SearchKind.SUBJECT
         examSearchOpen -> SearchKind.COURSE
-        showingRootTab && tab == RootTab.EXPLORE -> kind
+        showingRootTab && tab == RootTab.EXPLORE && !exploringRooms -> kind
         showingRootTab && tab == RootTab.FAVORITES && favoriteSection == FavoriteSection.SUBJECTS -> SearchKind.SUBJECT
         else -> null
     }
@@ -1067,11 +1138,13 @@ fun OrariApp(
                         settings -> Text("Preferenze")
                         notificationSettingsOpen -> Text("Impostazioni notifiche")
                         notificationsOpen -> Text("Notifiche")
+                        selectedRoom != null -> Text("Aula ${selectedRoom!!.name}", maxLines = 1,
+                            overflow = TextOverflow.Ellipsis)
                         else -> Text("Orari UNIMI", style = MaterialTheme.typography.titleLarge)
                     }
                 },
                 navigationIcon = {
-                    if (notificationDetailEntry != null || examPlannerAppeal != null || examPlannerOpen || lessonMonthOpen || calendar != null || courseDetail != null || examCourse != null || agendaOpen || settings || notificationsOpen ||
+                    if (notificationDetailEntry != null || examPlannerAppeal != null || examPlannerOpen || lessonMonthOpen || calendar != null || courseDetail != null || selectedRoom != null || examCourse != null || agendaOpen || settings || notificationsOpen ||
                         notificationSettingsOpen) IconButton(onClick = ::goBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Indietro")
                     }
@@ -1140,7 +1213,9 @@ fun OrariApp(
             Column(Modifier.fillMaxSize()) {
                 val lessonsLoading = showingRootTab && tab == RootTab.LESSONS && saved.isNotEmpty() &&
                     (savedScheduleLoading || savedSchedule == null && !savedScheduleAttempted)
-                if (catalogLoading || lessonsLoading || examCourse != null && examRefreshing ||
+                if (catalogLoading || roomCatalogLoading && exploringRooms ||
+                    selectedRoom != null && roomPlanningLoading || lessonsLoading ||
+                    examCourse != null && examRefreshing ||
                     calendar != null && calendarRefreshing || busy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
@@ -1432,6 +1507,36 @@ fun OrariApp(
                                     teaching.name, SearchKind.SUBJECT))
                             })
                     }
+                    tab == RootTab.EXPLORE && selectedRoom != null -> RoomDetailScreen(
+                        room = selectedRoom!!,
+                        date = roomDay,
+                        planning = roomPlanning,
+                        loading = roomPlanningLoading,
+                        error = roomPlanningError,
+                        onDate = { roomDay = it; roomPlanningRetry = 0 },
+                        onRefresh = { roomPlanningRetry++ }
+                    )
+                    tab == RootTab.EXPLORE && exploringRooms -> RoomSearchScreen(
+                        query = roomQuery,
+                        results = roomResults,
+                        loading = roomCatalogLoading || roomCatalog == null && roomCatalogError == null,
+                        error = roomCatalogError,
+                        onQuery = { roomQuery = it },
+                        onOpenRoom = {
+                            selectedRoom = it
+                            roomDay = LocalDate.now(ZoneId.of("Europe/Rome"))
+                            roomPlanning = null
+                            roomPlanningRetry = 0
+                        },
+                        onRetry = { roomCatalogError = null; roomCatalogRetry++ },
+                        onCategory = { index ->
+                            if (index < SearchKind.entries.size) {
+                                exploringRooms = false
+                                kind = SearchKind.entries[index]
+                                query = ""
+                            }
+                        }
+                    )
                     tab == RootTab.EXPLORE -> SearchScreen(
                         years = years, year = year, loadingYears = loadingYears,
                         kind = kind, query = query, results = results,
@@ -1447,6 +1552,7 @@ fun OrariApp(
                             error = null
                         },
                         onKind = { kind = it; query = ""; error = null },
+                        onRooms = { exploringRooms = true; roomQuery = ""; error = null },
                         onQuery = { query = it }, onSelect = ::openItem,
                         onToggleCourseFavorite = { item ->
                             year?.let { selected -> toggleFavorite(FavoriteCourse(selected.code, item.code,
