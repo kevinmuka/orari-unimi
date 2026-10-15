@@ -151,6 +151,7 @@ fun SearchScreen(
     selectedSubjects: List<FavoriteSubject>,
     onYear: (AcademicYear) -> Unit, onKind: (SearchKind) -> Unit,
     onRooms: () -> Unit,
+    initialCategory: Int,
     onQuery: (String) -> Unit, onSelect: (SearchItem) -> Unit,
     onToggleCourseFavorite: (SearchItem) -> Unit,
     onEditSubject: (SearchItem) -> Unit,
@@ -209,7 +210,7 @@ fun SearchScreen(
                             contentDescription = null, modifier = Modifier.size(18.dp))
                     }
                 }
-                ExploreCategoryTabs(SearchKind.entries.indexOf(kind)) { index ->
+                ExploreCategoryTabs(SearchKind.entries.indexOf(kind), initialCategory) { index ->
                     if (index == 3) onRooms() else onKind(SearchKind.entries[index])
                 }
                 AppSearchField(

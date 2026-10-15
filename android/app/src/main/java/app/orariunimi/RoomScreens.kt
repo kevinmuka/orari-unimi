@@ -1,11 +1,15 @@
 package app.orariunimi
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -16,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,18 +49,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.roundToInt
 
 private val roomZone = ZoneId.of("Europe/Rome")
 private val roomItalian = Locale.ITALIAN
@@ -63,37 +73,54 @@ private val roomDate = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", roomItali
 private val roomTime = DateTimeFormatter.ofPattern("HH:mm", roomItalian)
 private val roomUpdated = DateTimeFormatter.ofPattern("d MMM, HH:mm", roomItalian)
 private val exploreLabels = listOf("Corsi", "Docenti", "Insegnamenti", "Aule")
+private val exploreWeights = listOf(0.8f, 1.0f, 1.5f, 0.7f)
+private fun exploreOffset(index: Int) = exploreWeights.take(index).sum() / exploreWeights.sum()
+private fun exploreWidth(index: Int) = exploreWeights[index] / exploreWeights.sum()
 
 @Composable
-fun ExploreCategoryTabs(selectedIndex: Int, onSelect: (Int) -> Unit) {
+fun ExploreCategoryTabs(selectedIndex: Int, initialIndex: Int, onSelect: (Int) -> Unit) {
+    val safeIndex = selectedIndex.coerceIn(exploreLabels.indices)
+    val safeInitial = initialIndex.coerceIn(exploreLabels.indices)
+    val indicatorOffset = remember { Animatable(exploreOffset(safeInitial)) }
+    val indicatorWidth = remember { Animatable(exploreWidth(safeInitial)) }
+    LaunchedEffect(safeIndex) {
+        coroutineScope {
+            launch { indicatorOffset.animateTo(exploreOffset(safeIndex),
+                spring(dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow)) }
+            launch { indicatorWidth.animateTo(exploreWidth(safeIndex),
+                spring(dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow)) }
+        }
+    }
     Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Row(Modifier.fillMaxWidth().padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-            exploreLabels.forEachIndexed { index, label ->
-                val selected = index == selectedIndex
-                val container by animateColorAsState(
-                    if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                    label = "explore-category-background"
-                )
-                val content by animateColorAsState(
-                    if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                    label = "explore-category-text"
-                )
-                Box(
-                    Modifier.weight(1f).height(48.dp)
-                        .background(container, RoundedCornerShape(14.dp))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = { onSelect(index) }
-                        ).padding(horizontal = 3.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(label, color = content, textAlign = TextAlign.Center,
-                        fontSize = 11.sp, lineHeight = 13.sp, maxLines = 2,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(4.dp)) {
+            val widthPx = with(LocalDensity.current) { maxWidth.roundToPx() }
+            Box(Modifier.offset { IntOffset((widthPx * indicatorOffset.value).roundToInt(), 0) }
+                .width(maxWidth * indicatorWidth.value).height(48.dp)
+                .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(14.dp)))
+            Row(Modifier.fillMaxWidth()) {
+                exploreLabels.forEachIndexed { index, label ->
+                    val selected = index == safeIndex
+                    val content by animateColorAsState(
+                        if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        label = "explore-category-text"
+                    )
+                    Box(
+                        Modifier.weight(exploreWeights[index]).height(48.dp)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = { onSelect(index) }
+                            ).padding(horizontal = 2.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(label, color = content, textAlign = TextAlign.Center,
+                            fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+                    }
                 }
             }
         }
@@ -109,7 +136,8 @@ fun RoomSearchScreen(
     onQuery: (String) -> Unit,
     onOpenBuilding: (UnimiBuilding) -> Unit,
     onRetry: () -> Unit,
-    onCategory: (Int) -> Unit
+    onCategory: (Int) -> Unit,
+    initialCategory: Int
 ) {
     val focus = LocalFocusManager.current
     LazyColumn(
@@ -121,7 +149,7 @@ fun RoomSearchScreen(
             Column {
                 AppScreenHeader("Esplora", "Corsi, docenti, insegnamenti e aule UNIMI")
                 Spacer(Modifier.height(16.dp))
-                ExploreCategoryTabs(3, onCategory)
+                ExploreCategoryTabs(3, initialCategory, onCategory)
                 AppSearchField(query, onQuery, "Cerca un edificio o un'aula",
                     modifier = Modifier.padding(top = 10.dp))
                 if (results != null && !loading) {

@@ -156,6 +156,7 @@ fun OrariApp(
     var yearRetry by remember { mutableIntStateOf(0) }
     var loadingYears by remember { mutableStateOf(true) }
     var kind by remember { mutableStateOf(SearchKind.COURSE) }
+    var explorePreviousCategory by remember { mutableIntStateOf(0) }
     var query by remember { mutableStateOf("") }
     var exploringRooms by remember { mutableStateOf(false) }
     var roomQuery by remember { mutableStateOf("") }
@@ -1584,11 +1585,13 @@ fun OrariApp(
                         onRetry = { roomCatalogError = null; roomCatalogRetry++ },
                         onCategory = { index ->
                             if (index < SearchKind.entries.size) {
+                                explorePreviousCategory = 3
                                 exploringRooms = false
                                 kind = SearchKind.entries[index]
                                 query = ""
                             }
-                        }
+                        },
+                        initialCategory = explorePreviousCategory
                     )
                     tab == RootTab.EXPLORE -> SearchScreen(
                         years = years, year = year, loadingYears = loadingYears,
@@ -1604,8 +1607,15 @@ fun OrariApp(
                             examQuery = ""
                             error = null
                         },
-                        onKind = { kind = it; query = ""; error = null },
-                        onRooms = { exploringRooms = true; roomQuery = ""; error = null },
+                        onKind = {
+                            explorePreviousCategory = SearchKind.entries.indexOf(kind)
+                            kind = it; query = ""; error = null
+                        },
+                        onRooms = {
+                            explorePreviousCategory = SearchKind.entries.indexOf(kind)
+                            exploringRooms = true; roomQuery = ""; error = null
+                        },
+                        initialCategory = explorePreviousCategory,
                         onQuery = { query = it }, onSelect = ::openItem,
                         onToggleCourseFavorite = { item ->
                             year?.let { selected -> toggleFavorite(FavoriteCourse(selected.code, item.code,

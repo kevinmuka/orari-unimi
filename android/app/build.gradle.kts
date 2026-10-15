@@ -21,8 +21,8 @@ android {
         applicationId = "app.orariunimi"
         minSdk = 26
         targetSdk = 36
-        versionCode = 36
-        versionName = "1.9.1-preview.2"
+        versionCode = 37
+        versionName = "1.9.1-preview.3"
     }
 
     signingConfigs {
