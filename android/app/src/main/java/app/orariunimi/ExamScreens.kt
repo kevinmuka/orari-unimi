@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
@@ -60,10 +61,12 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -97,21 +100,32 @@ import java.time.format.FormatStyle
 import java.text.Normalizer
 import java.util.Locale
 
-enum class ExamHomeSection(val label: String) {
-    SEARCH("Cerca"), FOLLOWED("Seguiti")
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ExamCourseSearchSheet(
+    courses: List<SearchItem>?,
+    query: String,
+    results: List<SearchItem>?,
+    loading: Boolean,
+    onQuery: (String) -> Unit,
+    onSelect: (SearchItem) -> Unit,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().fillMaxHeight(0.82f)) {
+            Text("Cerca appelli", Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            ExamCoursePicker(courses, query, results, loading, onQuery, onSelect, onRetry)
+        }
+    }
 }
 
 @Composable
 fun ExamsScreen(
     courses: List<SearchItem>?,
-    academicYear: String,
-    section: ExamHomeSection,
     query: String,
     results: List<SearchItem>?,
-    followedQuery: String,
-    followedResults: List<SearchItem>?,
-    lessonSubjects: List<FollowedExamSubject>,
-    manualSubjects: List<FollowedExamSubject>,
     selectedItem: SearchItem?,
     selectedSubjectFromLessons: Boolean,
     selectedSubjectManual: Boolean,
@@ -125,16 +139,11 @@ fun ExamsScreen(
     savedAppeals: List<ExamAppeal>,
     appealsWithNotes: Set<Pair<String, String>>,
     onQuery: (String) -> Unit,
-    onFollowedQuery: (String) -> Unit,
-    onSection: (ExamHomeSection) -> Unit,
     onSelectCourse: (SearchItem) -> Unit,
-    onSelectSubject: (FollowedExamSubject) -> Unit,
     onToggleManualSubject: (SearchItem) -> Unit,
-    onRemoveManualSubject: (FollowedExamSubject) -> Unit,
     onWindow: (ExamWindow) -> Unit,
     onRefresh: () -> Unit,
     onRetryCourses: () -> Unit,
-    onRetrySubjects: () -> Unit,
     onOpenPlanner: () -> Unit,
     onOpenAppeal: (ExamAppeal) -> Unit,
     onToggleSavedAppeal: (ExamAppeal) -> Unit,
@@ -142,37 +151,15 @@ fun ExamsScreen(
 ) {
     if (selectedItem == null) {
         Column(Modifier.fillMaxSize()) {
-            ExamHomeHeader(
-                section = section,
-                onSection = onSection,
-                onOpenPlanner = onOpenPlanner,
-                savedCount = savedAppeals.size,
+            AppScreenHeader(
+                title = "Cerca appelli",
+                subtitle = "Trova gli esami di un corso di laurea",
                 modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 12.dp)
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.surfaceContainerHigh)
-            AnimatedContent(
-                targetState = section,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                transitionSpec = {
-                    val forward = targetState.ordinal > initialState.ordinal
-                    (slideInHorizontally(tween(240, easing = FastOutSlowInEasing)) {
-                        if (forward) it / 5 else -it / 5
-                    } + fadeIn(tween(170))).togetherWith(
-                        slideOutHorizontally(tween(210, easing = FastOutSlowInEasing)) {
-                            if (forward) -it / 5 else it / 5
-                        } + fadeOut(tween(130))
-                    )
-                },
-                label = "exam-home-section"
-            ) { shownSection ->
-                when (shownSection) {
-                    ExamHomeSection.SEARCH -> ExamCoursePicker(courses, query, results, loadingCourses,
-                        onQuery, onSelectCourse, onRetryCourses)
-                    ExamHomeSection.FOLLOWED -> FollowedExamSubjectsScreen(
-                        academicYear, followedQuery, followedResults, lessonSubjects, manualSubjects,
-                        loadingCourses, onFollowedQuery, onSelectSubject, onToggleManualSubject,
-                        onRemoveManualSubject, onRetrySubjects)
-                }
+            Box(Modifier.weight(1f)) {
+                ExamCoursePicker(courses, query, results, loadingCourses,
+                    onQuery, onSelectCourse, onRetryCourses)
             }
         }
     } else {
@@ -180,7 +167,7 @@ fun ExamsScreen(
             savedAppeals, appealsWithNotes,
             followedFromLessons = selectedSubjectFromLessons,
             followedManually = selectedSubjectManual,
-            onToggleFollowed = if (selectedItem.kind == SearchKind.SUBJECT && !selectedSubjectFromLessons) {
+            onToggleFollowed = if (selectedItem.kind == SearchKind.SUBJECT) {
                 { onToggleManualSubject(selectedItem) }
             } else null,
             onWindow, onRefresh, onOpenPlanner,
@@ -200,36 +187,15 @@ private fun ExamCoursePicker(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            OutlinedTextField(
-                value = query,
-                onValueChange = onQuery,
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = RoundedCornerShape(18.dp),
-                label = { Text("Cerca corso di laurea") },
-                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                trailingIcon = if (query.isNotEmpty()) {{
-                    IconButton(onClick = { onQuery("") }) {
-                        Icon(Icons.Outlined.Close, contentDescription = "Cancella ricerca")
-                    }
-                }} else null
-            )
+            AppSearchField(query, onQuery, "Cerca corso di laurea")
         }
 
         when {
-            loading && courses == null -> item {
-                Box(Modifier.fillMaxWidth().padding(top = 42.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            }
+            loading && courses == null -> item { AppLoadingState() }
             courses == null -> item {
                 ExamEmptyPanel("Elenco non disponibile", "Controlla la connessione e riprova.", "Riprova", onRetry)
             }
-            query.isNotBlank() && results == null -> item {
-                Box(Modifier.fillMaxWidth().padding(top = 42.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            }
+            query.isNotBlank() && results == null -> item { AppLoadingState() }
             query.isNotBlank() && results?.isEmpty() == true -> item {
                 ExamEmptyPanel("Nessun corso trovato", "Prova con il nome o il codice del corso.")
             }
@@ -253,178 +219,6 @@ private fun ExamCoursePicker(
                     icon = Icons.Outlined.Search
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun ExamHomeHeader(
-    section: ExamHomeSection,
-    onSection: (ExamHomeSection) -> Unit,
-    onOpenPlanner: () -> Unit,
-    savedCount: Int,
-    modifier: Modifier = Modifier
-) {
-    Column(modifier) {
-        AppScreenHeader(
-            title = "Appelli",
-            subtitle = "Cerca gli esami e tieni sotto controllo quelli che vuoi sostenere.",
-            actionIcon = Icons.Outlined.CalendarMonth,
-            actionDescription = if (savedCount == 0) "Apri calendario appelli"
-                else "Apri calendario con $savedCount appelli salvati",
-            onAction = onOpenPlanner
-        )
-        AppSegmentedControl(
-            options = ExamHomeSection.entries.map { it.label },
-            selectedIndex = ExamHomeSection.entries.indexOf(section),
-            onSelected = { onSection(ExamHomeSection.entries[it]) },
-            modifier = Modifier.padding(top = 16.dp)
-        )
-    }
-}
-
-@Composable
-private fun FollowedExamSubjectsScreen(
-    academicYear: String,
-    query: String,
-    results: List<SearchItem>?,
-    lessonSubjects: List<FollowedExamSubject>,
-    manualSubjects: List<FollowedExamSubject>,
-    loading: Boolean,
-    onQuery: (String) -> Unit,
-    onSelect: (FollowedExamSubject) -> Unit,
-    onToggleManual: (SearchItem) -> Unit,
-    onRemoveManual: (FollowedExamSubject) -> Unit,
-    onRetry: () -> Unit
-) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 30.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        item {
-            OutlinedTextField(
-                value = query,
-                onValueChange = onQuery,
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = RoundedCornerShape(18.dp),
-                label = { Text("Aggiungi un insegnamento") },
-                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                trailingIcon = if (query.isNotEmpty()) {{
-                    IconButton(onClick = { onQuery("") }) {
-                        Icon(Icons.Outlined.Close, contentDescription = "Cancella ricerca")
-                    }
-                }} else null
-            )
-        }
-        if (query.isNotBlank()) {
-            when {
-                loading || results == null -> item {
-                    Box(Modifier.fillMaxWidth().padding(vertical = 34.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                }
-                results.isEmpty() -> item {
-                    ExamEmptyPanel("Nessun insegnamento trovato",
-                        "Prova con il nome o il codice dell’insegnamento.", "Riprova", onRetry)
-                }
-                else -> {
-                    item { ExamSectionLabel("RISULTATI") }
-                    items(results, key = { "subject-result:${it.code}" }) { item ->
-                        val fromLessons = lessonSubjects.any { it.year == academicYear && it.code == item.code }
-                        val manual = manualSubjects.any { it.year == academicYear && it.code == item.code }
-                        ExamSubjectCard(
-                            name = item.name,
-                            code = item.code,
-                            supporting = when {
-                                fromLessons -> "Già presente nei tuoi orari"
-                                manual -> "Aggiunto agli appelli seguiti"
-                                else -> "Aggiungi agli appelli seguiti"
-                            },
-                            bookmarked = fromLessons || manual,
-                            onClick = if (fromLessons || manual) {{
-                                val subject = (lessonSubjects + manualSubjects).first {
-                                    it.year == academicYear && it.code == item.code
-                                }
-                                onSelect(subject)
-                            }} else {{ onToggleManual(item) }},
-                            onBookmark = if (fromLessons) null else {{ onToggleManual(item) }}
-                        )
-                    }
-                }
-            }
-            return@LazyColumn
-        }
-        if (lessonSubjects.isEmpty() && manualSubjects.isEmpty()) {
-            item {
-                AppEmptyState(
-                    title = "Nessun insegnamento seguito",
-                    message = "Gli insegnamenti salvati in Lezioni appariranno qui. Puoi aggiungerne altri dalla ricerca qui sopra.",
-                    icon = Icons.Outlined.School
-                )
-            }
-        } else {
-            if (lessonSubjects.isNotEmpty()) {
-                item { ExamSectionLabel("DAI TUOI ORARI") }
-                items(lessonSubjects, key = { "lesson-subject:${it.year}:${it.code}" }) { followed ->
-                    ExamSubjectCard(followed.name, followed.code, "Salvato in Lezioni", true,
-                        onClick = { onSelect(followed) })
-                }
-            }
-            if (manualSubjects.isNotEmpty()) {
-                item { ExamSectionLabel("AGGIUNTI PER GLI APPELLI") }
-                items(manualSubjects, key = { "manual-subject:${it.year}:${it.code}" }) { followed ->
-                    ExamSubjectCard(followed.name, followed.code, yearLabel(followed.year), true,
-                        onClick = { onSelect(followed) }, onBookmark = { onRemoveManual(followed) })
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ExamSectionLabel(text: String) {
-    Text(text, Modifier.padding(start = 2.dp, top = 8.dp),
-        style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.primary)
-}
-
-@Composable
-private fun ExamSubjectCard(
-    name: String,
-    code: String,
-    supporting: String,
-    bookmarked: Boolean,
-    onClick: () -> Unit,
-    onBookmark: (() -> Unit)? = null
-) {
-    Card(onClick = onClick, shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-        Row(Modifier.fillMaxWidth().padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 5.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer,
-                modifier = Modifier.size(44.dp)) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Outlined.EventAvailable, contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                }
-            }
-            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(listOf(code, supporting).filter { it.isNotBlank() }.joinToString(" · "),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            if (onBookmark != null) IconButton(onClick = onBookmark) {
-                Icon(if (bookmarked) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
-                    contentDescription = if (bookmarked) "Rimuovi dagli appelli seguiti"
-                        else "Aggiungi agli appelli seguiti")
-            } else Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 10.dp))
         }
     }
 }
@@ -477,9 +271,9 @@ private fun ExamAppealsList(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (onToggleFollowed != null) AppSurfaceIconButton(
-                        icon = if (followedManually) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
-                        contentDescription = if (followedManually) "Non seguire più questo insegnamento"
-                            else "Segui questo insegnamento",
+                        icon = if (followedFromLessons || followedManually)
+                            Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+                        contentDescription = "Scegli Lezioni e Appelli per questo insegnamento",
                         onClick = onToggleFollowed)
                     AppSurfaceIconButton(
                         icon = Icons.Outlined.CalendarMonth,
@@ -530,11 +324,7 @@ private fun ExamAppealsList(
         }
 
         when {
-            appeals == null && refreshing -> item {
-                Box(Modifier.fillMaxWidth().padding(top = 52.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            }
+            appeals == null && refreshing -> item { AppLoadingState() }
             appeals == null -> item {
                 ExamEmptyPanel(
                     "Impossibile caricare gli appelli",
@@ -643,6 +433,9 @@ fun ExamPlannerScreen(
     onShowSaved: (Boolean) -> Unit,
     showModeSelector: Boolean = true,
     embedded: Boolean = false,
+    rootMode: Boolean = false,
+    onSearch: (() -> Unit)? = null,
+    onFavorites: (() -> Unit)? = null,
     onSelectAppeal: (ExamAppeal) -> Unit,
     onSelectRemoved: (RemovedExamNotice) -> Unit,
     onDismissRemoved: (RemovedExamNotice) -> Unit
@@ -657,7 +450,7 @@ fun ExamPlannerScreen(
         }
     }
     val selectedAppeals = appealsByDay[selectedDay].orEmpty()
-    val savedGroups = remember(savedAppeals) { savedAppeals.groupBy { it.date } }
+    val savedGroups = remember(savedAppeals) { savedAppeals.groupBy { it.date }.toSortedMap() }
     val monthTitle = remember(month) {
         month.format(DateTimeFormatter.ofPattern("MMMM yyyy", examLocale))
             .replaceFirstChar { it.titlecase(examLocale) }
@@ -675,13 +468,32 @@ fun ExamPlannerScreen(
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 30.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        if (rootMode) item {
+            AppScreenHeader(
+                title = "Appelli",
+                subtitle = "${savedAppeals.size} ${if (savedAppeals.size == 1) "appello salvato" else "appelli salvati"}",
+                secondaryActionIcon = Icons.Outlined.BookmarkBorder,
+                secondaryActionDescription = "Apri insegnamenti preferiti",
+                onSecondaryAction = onFavorites,
+                actionIcon = Icons.Outlined.Search,
+                actionDescription = "Cerca appelli",
+                onAction = onSearch
+            )
+        }
+        if (showModeSelector) item {
+            AppSegmentedControl(
+                options = listOf("Calendario", "Salvati"),
+                selectedIndex = if (showSaved) 1 else 0,
+                onSelected = { onShowSaved(it == 1) }
+            )
+        }
         if (!showSaved || !embedded) item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(if (!showSaved) monthTitle else "Appelli salvati",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold)
-                    Text("${savedAppeals.size} ${if (savedAppeals.size == 1) "appello salvato" else "appelli salvati"}",
+                    if (!rootMode) Text("${savedAppeals.size} ${if (savedAppeals.size == 1) "appello salvato" else "appelli salvati"}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -709,13 +521,6 @@ fun ExamPlannerScreen(
                     onOpen = { onSelectRemoved(notice) },
                     onDismiss = { onDismissRemoved(notice) })
             }
-        }
-        if (showModeSelector) item {
-            AppSegmentedControl(
-                options = listOf("Calendario", "Salvati"),
-                selectedIndex = if (showSaved) 1 else 0,
-                onSelected = { onShowSaved(it == 1) }
-            )
         }
         if (!showSaved) item {
             Surface(

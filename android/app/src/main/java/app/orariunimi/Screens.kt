@@ -61,6 +61,7 @@ import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.EventAvailable
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Place
@@ -77,6 +78,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -115,6 +117,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import java.time.Instant
@@ -139,18 +142,42 @@ private val lessonColors = listOf(
     Color(0xFF8C68C2), Color(0xFF3C82B4), Color(0xFFB56D3C), Color(0xFF5F8A50)
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
     years: List<AcademicYear>, year: AcademicYear?, loadingYears: Boolean,
     kind: SearchKind, query: String, results: List<SearchItem>?, loadingEntries: Boolean,
     favorites: List<FavoriteCourse>,
+    selectedSubjects: List<FavoriteSubject>,
     onYear: (AcademicYear) -> Unit, onKind: (SearchKind) -> Unit,
     onQuery: (String) -> Unit, onSelect: (SearchItem) -> Unit,
     onToggleCourseFavorite: (SearchItem) -> Unit,
+    onEditSubject: (SearchItem) -> Unit,
     onRetryYears: () -> Unit, onRetryEntries: () -> Unit
 ) {
     val focusManager = LocalFocusManager.current
     var yearMenu by remember { mutableStateOf(false) }
+    if (yearMenu) androidx.compose.material3.ModalBottomSheet(onDismissRequest = { yearMenu = false }) {
+        Text("Anno accademico", Modifier.padding(start = 24.dp, end = 24.dp, bottom = 12.dp),
+            style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        years.forEach { option ->
+            Surface(
+                onClick = { yearMenu = false; onYear(option) },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = if (option == year) MaterialTheme.colorScheme.secondaryContainer
+                    else MaterialTheme.colorScheme.surface
+            ) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text(option.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                    if (option == year) Icon(Icons.Outlined.Check, contentDescription = "Anno selezionato",
+                        tint = MaterialTheme.colorScheme.secondary)
+                }
+            }
+        }
+        Spacer(Modifier.height(22.dp))
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 24.dp),
@@ -158,81 +185,57 @@ fun SearchScreen(
     ) {
         item {
             Column(Modifier.fillMaxWidth()) {
-            AppScreenHeader(
-                title = "Esplora",
-                subtitle = "Trova corsi, docenti e insegnamenti pubblicati da UNIMI."
-            )
-            Spacer(Modifier.height(18.dp))
-            Text("ANNO ACCADEMICO", style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-            Box(Modifier.padding(top = 6.dp)) {
-                OutlinedButton(
-                    onClick = { yearMenu = !yearMenu },
-                    enabled = years.isNotEmpty(),
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp)
+                AppScreenHeader(
+                    title = "Esplora",
+                    subtitle = "Corsi, docenti e insegnamenti UNIMI"
+                )
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Outlined.CalendarMonth, contentDescription = null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(year?.name ?: "Anno accademico", Modifier.weight(1f),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Start)
-                    Icon(if (yearMenu) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
-                        contentDescription = if (yearMenu) "Chiudi elenco anni" else "Apri elenco anni",
-                        modifier = Modifier.size(18.dp))
-                }
-                DropdownMenu(expanded = yearMenu, onDismissRequest = { yearMenu = false },
-                    modifier = Modifier.fillMaxWidth(0.88f)) {
-                    years.forEach { option ->
-                        DropdownMenuItem(
-                            text = { Text(option.name) },
-                            onClick = { yearMenu = false; onYear(option) },
-                            trailingIcon = if (option == year) {{
-                                Icon(Icons.Outlined.Check, contentDescription = "Anno selezionato")
-                            }} else null
-                        )
+                    Text("Anno accademico", Modifier.weight(1f),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    OutlinedButton(
+                        onClick = { yearMenu = true },
+                        enabled = years.isNotEmpty(),
+                        shape = RoundedCornerShape(16.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Text(year?.name ?: "Seleziona", style = MaterialTheme.typography.labelLarge)
+                        Spacer(Modifier.width(5.dp))
+                        Icon(Icons.Outlined.KeyboardArrowDown,
+                            contentDescription = null, modifier = Modifier.size(18.dp))
                     }
                 }
-            }
-            AppSegmentedControl(
-                options = SearchKind.entries.map { it.label },
-                selectedIndex = SearchKind.entries.indexOf(kind),
-                onSelected = { onKind(SearchKind.entries[it]) },
-                modifier = Modifier.padding(top = 14.dp)
-            )
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(
-                value = query, onValueChange = onQuery, modifier = Modifier.fillMaxWidth(),
-                singleLine = true, shape = RoundedCornerShape(18.dp),
-                label = { Text("Cerca ${kind.label.lowercase(italian)}") },
-                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                trailingIcon = if (query.isNotEmpty()) {{
-                    IconButton(onClick = { onQuery("") }) { Icon(Icons.Outlined.Close, contentDescription = "Cancella ricerca") }
-                }} else null
-            )
-            if (query.isNotBlank() && !loadingEntries && results != null) {
-                Spacer(Modifier.height(10.dp))
-                Text(if (results.size == 40) "Primi 40 risultati · affina la ricerca"
-                    else "${results.size} ${if (results.size == 1) "risultato" else "risultati"}",
-                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+                AppSegmentedControl(
+                    options = SearchKind.entries.map { it.label },
+                    selectedIndex = SearchKind.entries.indexOf(kind),
+                    onSelected = { onKind(SearchKind.entries[it]) }
+                )
+                AppSearchField(
+                    value = query,
+                    onValueChange = onQuery,
+                    placeholder = "Cerca ${kind.label.lowercase(italian)}",
+                    modifier = Modifier.padding(top = 10.dp)
+                )
+                if (query.isNotBlank() && !loadingEntries && results != null) {
+                    Text(if (results.size == 40) "Primi 40 risultati · affina la ricerca"
+                        else "${results.size} ${if (results.size == 1) "risultato" else "risultati"}",
+                        modifier = Modifier.padding(top = 9.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
         when {
-            loadingYears || loadingEntries -> item { Box(
-                Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center
-            ) {
-                androidx.compose.material3.CircularProgressIndicator()
-            } }
+            loadingYears || loadingEntries -> item { AppLoadingState() }
             year == null -> item { AppEmptyState("Nessun anno disponibile",
                 "Controlla la connessione e riprova.", action = "Riprova", onAction = onRetryYears) }
             query.isBlank() -> item { AppEmptyState("Inizia a cercare",
                 "Scrivi il nome o il codice di un ${kind.subtitle.lowercase(italian)}.",
                 icon = Icons.Outlined.Search) }
-            results == null -> item { Box(
-                Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center
-            ) {
-                androidx.compose.material3.CircularProgressIndicator()
-            } }
+            results == null -> item { AppLoadingState() }
             results.isEmpty() -> item { AppEmptyState("Nessun risultato",
                 "Prova con un nome diverso o con il codice.", action = "Ricarica elenco",
                 onAction = onRetryEntries, icon = Icons.Outlined.Search) }
@@ -240,8 +243,10 @@ fun SearchScreen(
                 items(results, key = { item -> "${item.kind}:${item.code}" }) { item ->
                     SearchResultCard(item,
                         favorite = favorites.any { it.year == year.code && it.code == item.code },
+                        subjectSaved = selectedSubjects.any { it.year == year.code && it.code == item.code },
                         onClick = { focusManager.clearFocus(); onSelect(item) },
-                        onToggleFavorite = { onToggleCourseFavorite(item) })
+                        onToggleFavorite = { onToggleCourseFavorite(item) },
+                        onEditSubject = { focusManager.clearFocus(); onEditSubject(item) })
                 }
             }
         }
@@ -249,8 +254,9 @@ fun SearchScreen(
 }
 
 @Composable
-private fun SearchResultCard(item: SearchItem, favorite: Boolean, onClick: () -> Unit,
-                             onToggleFavorite: () -> Unit) {
+private fun SearchResultCard(item: SearchItem, favorite: Boolean, subjectSaved: Boolean,
+                             onClick: () -> Unit, onToggleFavorite: () -> Unit,
+                             onEditSubject: () -> Unit) {
     if (item.kind == SearchKind.COURSE) {
         DegreeCourseCard(
             course = item,
@@ -291,138 +297,34 @@ private fun SearchResultCard(item: SearchItem, favorite: Boolean, onClick: () ->
                         color = palette?.content ?: MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Icon(Icons.Outlined.ChevronRight, contentDescription = null,
+            if (item.kind == SearchKind.SUBJECT) IconButton(onClick = onEditSubject) {
+                Icon(if (subjectSaved) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+                    contentDescription = if (subjectSaved) "Modifica dove seguire ${item.name}"
+                        else "Segui ${item.name}")
+            } else Icon(Icons.Outlined.ChevronRight, contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
 @Composable
-fun LessonsScreen(
-    saved: List<SavedSubject>,
-    personalLessons: List<Lesson>?, loadingPersonal: Boolean,
-    onOpen: (SavedSubject) -> Unit, onCombined: () -> Unit,
-    onOpenNext: (LocalDate) -> Unit, onAgenda: () -> Unit, onAdd: () -> Unit,
-    onRemove: (SavedSubject) -> Unit, onClear: () -> Unit
-) {
-    var confirmClear by remember { mutableStateOf(false) }
-    if (confirmClear) AlertDialog(
-        onDismissRequest = { confirmClear = false },
-        title = { Text("Svuotare i miei orari?") },
-        text = { Text("Gli insegnamenti salvati verranno rimossi da questo dispositivo.") },
-        confirmButton = { TextButton(onClick = { confirmClear = false; onClear() }) { Text("Elimina tutto") } },
-        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Annulla") } }
-    )
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        item {
-            AppScreenHeader(
-                title = "Lezioni",
-                subtitle = "I tuoi insegnamenti, raccolti in un unico calendario.",
-                actionIcon = Icons.Outlined.ViewAgenda.takeIf { saved.isNotEmpty() },
-                actionDescription = "Apri vista agenda",
-                onAction = onAgenda.takeIf { saved.isNotEmpty() }
-            )
-        }
-        if (saved.isNotEmpty()) item {
-            Spacer(Modifier.height(6.dp))
-            NextLessonCard(personalLessons, loadingPersonal, onOpenNext)
-        }
-        item {
-            Spacer(Modifier.height(8.dp))
-            Button(onClick = onCombined, enabled = saved.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Outlined.CalendarMonth, contentDescription = null, Modifier.size(19.dp))
-                Spacer(Modifier.width(9.dp))
-                Text("Apri calendario delle lezioni")
-            }
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onAdd, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Outlined.Add, contentDescription = null, Modifier.size(19.dp))
-                Spacer(Modifier.width(9.dp))
-                Text("Aggiungi insegnamento")
-            }
-        }
-        if (saved.isEmpty()) item {
-            Spacer(Modifier.height(12.dp))
-            EmptyCard("Ancora nessun insegnamento",
-                "Cerca un insegnamento e tocca il segnalibro nel calendario.")
-        } else {
-            item {
-                Spacer(Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("SALVATI · ${saved.size}", style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = { confirmClear = true }) { Text("Svuota elenco") }
-                }
-            }
-            items(saved, key = { item -> "${item.year}:${item.code}" }) { item ->
-                Card(onClick = { onOpen(item) }, shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-                    Row(Modifier.fillMaxWidth().padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.AutoMirrored.Outlined.MenuBook, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(item.name, style = MaterialTheme.typography.titleMedium, maxLines = 2,
-                                overflow = TextOverflow.Ellipsis)
-                            Text("${item.code} · ${item.year}", style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        IconButton(onClick = { onRemove(item) }) {
-                            Icon(Icons.Outlined.DeleteOutline, contentDescription = "Rimuovi ${item.name}")
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun NextLessonCard(lessons: List<Lesson>?, loading: Boolean, onOpen: (LocalDate) -> Unit) {
-    val next = lessons?.let(::nextLesson)
-    Card(onClick = { next?.let { onOpen(it.date) } }, shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-                modifier = Modifier.size(48.dp)) {
-                Box(contentAlignment = Alignment.Center) {
-                    if (loading && lessons == null) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-                    else Icon(Icons.Outlined.CalendarMonth, contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary)
-                }
-            }
-            Spacer(Modifier.width(13.dp))
-            Column(Modifier.weight(1f)) {
-                Text("PROSSIMA LEZIONE", style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                when {
-                    lessons == null -> Text("Aggiornamento del calendario…",
-                        style = MaterialTheme.typography.bodyMedium)
-                    next == null -> Text("Nessuna lezione in programma",
-                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    else -> {
-                        Text(next.subject.ifBlank { "Insegnamento" }, style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text("${next.date.format(nextLessonDate).replaceFirstChar { it.titlecase(italian) }} · " +
-                            "${next.start}–${next.end}" + if (next.room.isNotBlank()) " · ${next.room}" else "",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2,
-                            overflow = TextOverflow.Ellipsis)
-                    }
-                }
-            }
-        }
+fun LessonsEmptyScreen(onManage: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp)) {
+        AppScreenHeader("Lezioni", "Il tuo orario settimanale")
+        AppEmptyState(
+            title = "Ancora nessun insegnamento",
+            message = "Aggiungi un insegnamento dai Preferiti per vedere l'orario della settimana.",
+            action = "Aggiungi insegnamento",
+            onAction = onManage,
+            icon = Icons.AutoMirrored.Outlined.MenuBook
+        )
     }
 }
 
 @Composable
 fun ScheduleAgendaScreen(
-    lessons: List<Lesson>?, loading: Boolean, weekend: Boolean, onOpenDay: (LocalDate) -> Unit
+    lessons: List<Lesson>?, loading: Boolean, weekend: Boolean, onOpenDay: (LocalDate) -> Unit,
+    onRetry: (() -> Unit)? = null
 ) {
     var range by remember { mutableStateOf(AgendaRange.WEEK) }
     var anchorDay by remember { mutableStateOf(openingDay(LocalDate.now(), weekend)) }
@@ -491,7 +393,8 @@ fun ScheduleAgendaScreen(
                 weekend = weekend,
                 range = page.range,
                 anchorDay = page.anchorDay,
-                onOpenDay = onOpenDay
+                onOpenDay = onOpenDay,
+                onRetry = onRetry
             )
         }
     }
@@ -502,7 +405,7 @@ private data class AgendaViewport(val range: AgendaRange, val anchorDay: LocalDa
 @Composable
 private fun AgendaTimeline(
     lessons: List<Lesson>?, loading: Boolean, weekend: Boolean, range: AgendaRange,
-    anchorDay: LocalDate, onOpenDay: (LocalDate) -> Unit
+    anchorDay: LocalDate, onOpenDay: (LocalDate) -> Unit, onRetry: (() -> Unit)?
 ) {
     val week = startOfWeek(anchorDay)
     val days = if (range == AgendaRange.DAY) listOf(anchorDay) else
@@ -523,8 +426,10 @@ private fun AgendaTimeline(
     val gridHeight = slotHeight * slots
 
     when {
-        lessons == null && loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
+        lessons == null && loading -> AppLoadingState(Modifier.fillMaxSize())
+        lessons == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            AppEmptyState("Orari non disponibili", "Controlla la connessione e riprova.",
+                action = if (onRetry != null) "Riprova" else null, onAction = onRetry)
         }
         else -> BoxWithConstraints(
             Modifier.fillMaxSize().padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
@@ -1268,12 +1173,26 @@ private fun SettingCard(icon: androidx.compose.ui.graphics.vector.ImageVector, t
 @Composable
 fun CalendarScreen(
     calendar: CalendarData, week: LocalDate, selectedDay: LocalDate, weekend: Boolean,
-    savedSubjects: List<SavedSubject>, onToggleSubject: (Lesson) -> Unit,
+    preferredSubjects: List<FavoriteSubject>, onToggleSubject: (Lesson) -> Unit,
     refreshing: Boolean, onRefresh: () -> Unit,
     onMoveWeek: (Long) -> Unit, onSelectDay: (LocalDate) -> Unit,
-    onOpenMonth: () -> Unit
+    onOpenMonth: () -> Unit,
+    rootLessons: Boolean = false,
+    onOpenAgenda: (() -> Unit)? = null,
+    onManageSubjects: (() -> Unit)? = null
 ) {
     Column(Modifier.fillMaxSize()) {
+        if (rootLessons) AppScreenHeader(
+            title = "Lezioni",
+            subtitle = "Il tuo orario settimanale",
+            modifier = Modifier.padding(start = 20.dp, end = 12.dp, top = 8.dp, bottom = 4.dp),
+            secondaryActionIcon = Icons.Outlined.BookmarkBorder,
+            secondaryActionDescription = "Apri insegnamenti preferiti",
+            onSecondaryAction = onManageSubjects,
+            actionIcon = Icons.Outlined.ViewAgenda,
+            actionDescription = "Apri agenda",
+            onAction = onOpenAgenda
+        )
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 9.dp)) {
             WeekHeader(week, onMoveWeek, onOpenMonth = onOpenMonth)
             Spacer(Modifier.height(14.dp))
@@ -1324,7 +1243,7 @@ fun CalendarScreen(
             },
             label = "calendar-day"
         ) { displayedDay ->
-            CalendarDayLessons(calendar, displayedDay, savedSubjects, onToggleSubject)
+            CalendarDayLessons(calendar, displayedDay, preferredSubjects, onToggleSubject)
         }
     }
 }
@@ -1364,7 +1283,7 @@ private fun CalendarWeekStrip(
 private fun CalendarDayLessons(
     calendar: CalendarData,
     day: LocalDate,
-    savedSubjects: List<SavedSubject>,
+    preferredSubjects: List<FavoriteSubject>,
     onToggleSubject: (Lesson) -> Unit
 ) {
     val visibleLessons = calendar.lessons.filter { it.date == day }
@@ -1388,7 +1307,7 @@ private fun CalendarDayLessons(
             val canSave = calendar.source?.kind == SearchKind.COURSE ||
                 calendar.source?.kind == SearchKind.TEACHER
             LessonCard(lesson,
-                saved = savedSubjects.any { it.year == calendar.year && it.code == lesson.subjectCode },
+                saved = preferredSubjects.any { it.year == calendar.year && it.code == lesson.subjectCode },
                 onToggleSave = if (canSave) {{ onToggleSubject(lesson) }} else null)
         }
     }
@@ -1586,7 +1505,18 @@ fun LessonMonthScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                FilledTonalButton(onClick = { onOpenDay(selectedDay) }) { Text("Apri giornata") }
+                FilledTonalButton(
+                    onClick = { onOpenDay(selectedDay) },
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                ) {
+                    Text("Apri giornata")
+                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                        contentDescription = null, modifier = Modifier.size(18.dp))
+                }
             }
         }
         if (selectedLessons.isEmpty()) item {
@@ -1711,8 +1641,7 @@ private fun LessonCard(lesson: Lesson, saved: Boolean, onToggleSave: (() -> Unit
                         style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     if (onToggleSave != null) IconButton(onClick = onToggleSave) {
                         Icon(if (saved) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
-                            contentDescription = if (saved) "Rimuovi ${lesson.subject} dai miei orari"
-                                else "Salva ${lesson.subject} nei miei orari")
+                            contentDescription = "Scegli Lezioni e Appelli per ${lesson.subject}")
                     }
                 }
                 if (lesson.room.isNotBlank()) {

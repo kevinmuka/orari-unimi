@@ -25,7 +25,7 @@ import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.EventAvailable
 import androidx.compose.material.icons.outlined.School
-import androidx.compose.material.icons.outlined.ViewAgenda
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -33,7 +33,6 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -130,8 +129,8 @@ fun DegreeCourseCard(
 
 @Composable
 fun CourseDetailScreen(
-    course: SearchItem, year: String, favorite: Boolean, savedSubjects: List<SavedSubject>,
-    onToggleFavorite: () -> Unit, onOpenCalendar: () -> Unit, onOpenAgenda: () -> Unit,
+    course: SearchItem, year: String, preferredSubjects: List<FavoriteSubject>,
+    onOpenCalendar: () -> Unit,
     onOpenExams: () -> Unit,
     onOpenTeaching: (CourseTeaching) -> Unit, onToggleTeaching: (CourseTeaching) -> Unit
 ) {
@@ -147,36 +146,23 @@ fun CourseDetailScreen(
         item {
             Column {
                 DegreeBadge(type)
-                Row(Modifier.fillMaxWidth().padding(top = 12.dp),
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Text(course.name, Modifier.weight(1f),
-                        style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                    AppSurfaceIconButton(
-                        icon = Icons.Outlined.ViewAgenda,
-                        contentDescription = "Apri vista agenda del corso",
-                        onClick = onOpenAgenda
-                    )
-                }
+                Text(course.name, Modifier.padding(top = 12.dp),
+                    style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 Text("${yearLabel(year)} · $count insegnamenti disponibili",
                     Modifier.padding(top = 5.dp), style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Button(onClick = onOpenCalendar, modifier = Modifier.fillMaxWidth().padding(top = 18.dp)) {
-                    Icon(Icons.Outlined.CalendarMonth, contentDescription = null, Modifier.size(19.dp))
-                    Spacer(Modifier.width(9.dp))
-                    Text("Apri calendario del corso")
-                }
-                FilledTonalButton(onClick = onOpenExams,
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                    Icon(Icons.Outlined.EventAvailable, contentDescription = null, Modifier.size(19.dp))
-                    Spacer(Modifier.width(9.dp))
-                    Text("Vedi gli appelli del corso")
-                }
-                FilledTonalButton(onClick = onToggleFavorite,
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                    Icon(if (favorite) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
-                        contentDescription = null, Modifier.size(19.dp))
-                    Spacer(Modifier.width(9.dp))
-                    Text(if (favorite) "Corso salvato" else "Salva corso")
+                Row(Modifier.fillMaxWidth().padding(top = 18.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(onClick = onOpenCalendar, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Outlined.CalendarMonth, contentDescription = null, Modifier.size(19.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Lezioni")
+                    }
+                    FilledTonalButton(onClick = onOpenExams, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Outlined.EventAvailable, contentDescription = null, Modifier.size(19.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Appelli")
+                    }
                 }
                 Text(if (course.coursePaths.any { it.code.startsWith("catalog:") }) "INSEGNAMENTI"
                     else "INSEGNAMENTI PER PERCORSO", Modifier.padding(top = 25.dp),
@@ -197,7 +183,7 @@ fun CourseDetailScreen(
             itemsIndexed(path.teachings, key = { teachingIndex, teaching ->
                 "$pathIndex:$teachingIndex:${teaching.code}"
             }) { _, teaching ->
-                val isSaved = savedSubjects.any { it.year == year && it.code == teaching.code }
+                val isSaved = preferredSubjects.any { it.year == year && it.code == teaching.code }
                 Card(onClick = { onOpenTeaching(teaching) }, shape = RoundedCornerShape(18.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                     Row(Modifier.fillMaxWidth().padding(start = 14.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
@@ -215,53 +201,11 @@ fun CourseDetailScreen(
                         }
                         IconButton(onClick = { onToggleTeaching(teaching) }) {
                             Icon(if (isSaved) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
-                                contentDescription = if (isSaved) "Rimuovi ${teaching.name} dai miei orari"
-                                    else "Salva ${teaching.name} nei miei orari")
+                                contentDescription = "Scegli Lezioni e Appelli per ${teaching.name}")
                         }
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun FavoriteCoursesContent(
-    favorites: List<FavoriteCourse>, onOpen: (FavoriteCourse) -> Unit,
-    onRemove: (FavoriteCourse) -> Unit, onExplore: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 30.dp),
-        verticalArrangement = Arrangement.spacedBy(11.dp)
-    ) {
-        item {
-            OutlinedButton(onClick = onExplore, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Outlined.School, contentDescription = null, Modifier.size(19.dp))
-                Spacer(Modifier.width(9.dp))
-                Text("Cerca un corso di laurea")
-            }
-        }
-        if (favorites.isEmpty()) item {
-            AppEmptyState(
-                title = "Nessun corso salvato",
-                message = "Cerca un corso di laurea e tocca il segnalibro per ritrovarlo qui.",
-                action = "Esplora i corsi",
-                onAction = onExplore,
-                icon = Icons.Outlined.School
-            )
-        }
-        items(favorites, key = { "${it.year}:${it.code}" }) { favorite ->
-            DegreeCourseCard(
-                course = SearchItem(favorite.code, favorite.name, SearchKind.COURSE,
-                    degreeType = favorite.degreeType),
-                favorite = true,
-                onClick = { onOpen(favorite) },
-                supportingText = "${favorite.degreeType.label} · ${yearLabel(favorite.year)}",
-                onToggleFavorite = { onRemove(favorite) },
-                favoriteDescription = "Rimuovi ${favorite.name} dai salvati"
-            )
         }
     }
 }

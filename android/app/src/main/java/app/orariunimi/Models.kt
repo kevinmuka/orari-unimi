@@ -49,6 +49,46 @@ data class FollowedExamSubject(
     val sources: List<ExamSubjectSource>
 )
 
+/** One visible entry even when an insegnamento is used by both Lezioni and Appelli. */
+data class FavoriteSubject(
+    val year: String,
+    val code: String,
+    val name: String,
+    val inLessons: Boolean,
+    val inExams: Boolean,
+    val manuallyFollowedForExams: Boolean,
+    val examSources: List<ExamSubjectSource>
+)
+
+fun favoriteSubjects(
+    lessons: List<SavedSubject>,
+    examOnly: List<FollowedExamSubject>,
+    currentYear: String,
+    indexedSubjects: List<SearchItem>?,
+    excludedFromExams: Set<Pair<String, String>> = emptySet()
+): List<FavoriteSubject> {
+    val lessonByKey = lessons.associateBy { it.year to it.code }
+    val examByKey = examOnly.associateBy { it.year to it.code }
+    val indexedByCode = indexedSubjects?.associateBy { it.code }.orEmpty()
+    return (lessonByKey.keys + examByKey.keys).distinct().map { key ->
+        val lesson = lessonByKey[key]
+        val followed = examByKey[key]
+        val indexedSources = if (key.first == currentYear) indexedByCode[key.second]?.examSources.orEmpty()
+            else emptyList()
+        FavoriteSubject(
+            year = key.first,
+            code = key.second,
+            name = lesson?.name ?: requireNotNull(followed).name,
+            inLessons = lesson != null,
+            inExams = followed != null || lesson != null &&
+                key !in excludedFromExams && (followed?.sources.orEmpty() + indexedSources).isNotEmpty(),
+            manuallyFollowedForExams = followed != null,
+            examSources = (followed?.sources.orEmpty() + indexedSources).distinct()
+        )
+    }.sortedWith(compareBy<FavoriteSubject> { it.name.lowercase(Locale.ITALIAN) }
+        .thenByDescending { it.year })
+}
+
 data class NotificationPreferences(
     val enabled: Boolean = false,
     val lessonChanges: Boolean = false,

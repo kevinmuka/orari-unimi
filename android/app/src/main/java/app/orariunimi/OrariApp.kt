@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Bookmark
@@ -31,8 +33,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -53,6 +53,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
@@ -83,6 +85,7 @@ data class CalendarData(
     val combinedSubjects: List<SavedSubject>? = null
 )
 data class CourseDetailData(val year: String, val course: SearchItem)
+data class SubjectSelectionTarget(val year: String, val item: SearchItem)
 data class ExamViewData(
     val courseCode: String,
     val window: ExamWindow,
@@ -119,13 +122,14 @@ fun OrariApp(
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     var tab by remember { mutableStateOf(RootTab.fromIndex(initialTab)) }
-    var examHomeSection by remember { mutableStateOf(ExamHomeSection.SEARCH) }
+    var examSearchOpen by remember { mutableStateOf(false) }
+    var subjectSelectionTarget by remember { mutableStateOf<SubjectSelectionTarget?>(null) }
+    var favoriteSection by remember { mutableStateOf(FavoriteSection.SUBJECTS) }
     var settings by remember { mutableStateOf(false) }
     var notificationsOpen by remember { mutableStateOf(false) }
     var notificationSettingsOpen by remember { mutableStateOf(false) }
     var agendaOpen by remember { mutableStateOf(false) }
     var lessonMonthOpen by remember { mutableStateOf(false) }
-    var agendaOpenedFromCourseDetail by remember { mutableStateOf(false) }
     var calendar by remember { mutableStateOf<CalendarData?>(null) }
     var courseDetail by remember { mutableStateOf<CourseDetailData?>(null) }
     var examCourse by remember { mutableStateOf<SearchItem?>(null) }
@@ -143,7 +147,6 @@ fun OrariApp(
     var examPlannerSavedMode by remember { mutableStateOf(false) }
     var examLoadId by remember { mutableIntStateOf(0) }
     var examQuery by remember { mutableStateOf("") }
-    var examFollowedQuery by remember { mutableStateOf("") }
     var years by remember { mutableStateOf<List<AcademicYear>>(emptyList()) }
     var year by remember { mutableStateOf<AcademicYear?>(null) }
     var yearRetry by remember { mutableIntStateOf(0) }
@@ -151,8 +154,8 @@ fun OrariApp(
     var kind by remember { mutableStateOf(SearchKind.COURSE) }
     var query by remember { mutableStateOf("") }
     var entries by remember { mutableStateOf<Map<SearchKind, SearchIndex>>(emptyMap()) }
+    var entriesAttempted by remember { mutableStateOf<Set<SearchKind>>(emptySet()) }
     var entriesRetry by remember { mutableIntStateOf(0) }
-    var loadingEntries by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var calendarRefreshing by remember { mutableStateOf(false) }
     var calendarLoadId by remember { mutableIntStateOf(0) }
@@ -160,8 +163,12 @@ fun OrariApp(
     var saved by remember { mutableStateOf(store.saved()) }
     var savedSchedule by remember { mutableStateOf<ScheduleSnapshot?>(null) }
     var savedScheduleLoading by remember { mutableStateOf(false) }
+    var savedScheduleAttempted by remember { mutableStateOf(false) }
+    var savedScheduleRetry by remember { mutableIntStateOf(0) }
+    var savedScheduleForceRefresh by remember { mutableStateOf(false) }
     var favorites by remember { mutableStateOf(store.favoriteCourses()) }
     var followedExamSubjects by remember { mutableStateOf(store.followedExamSubjects()) }
+    var excludedExamSubjects by remember { mutableStateOf(store.excludedExamSubjects()) }
     var savedExamAppeals by remember { mutableStateOf(store.savedExamAppeals()) }
     var removedExamNotices by remember { mutableStateOf(store.removedExamNotices()) }
     var weekend by remember { mutableStateOf(store.showWeekend) }
@@ -250,6 +257,8 @@ fun OrariApp(
             examError = null
             examPlannerAppeal = null
             examPlannerOpen = false
+            examSearchOpen = false
+            subjectSelectionTarget = null
             examLoadId++
             examRefreshing = false
             tab = RootTab.LESSONS
@@ -271,6 +280,8 @@ fun OrariApp(
             examError = null
             examPlannerAppeal = null
             examPlannerOpen = false
+            examSearchOpen = false
+            subjectSelectionTarget = null
             examLoadId++
             examRefreshing = false
             notificationEntries = store.notifications()
@@ -297,6 +308,8 @@ fun OrariApp(
         examError = null
         examPlannerAppeal = null
         examPlannerOpen = false
+        examSearchOpen = false
+        subjectSelectionTarget = null
         notificationDetailReturnsToCenter = false
         notificationDetailEntry = entry.takeUnless { it.type == AppNotificationType.APP_UPDATE }
         store.markNotificationsRead()
@@ -320,52 +333,66 @@ fun OrariApp(
         }
     }
 
-    LaunchedEffect(year?.code, kind, tab, examHomeSection, entriesRetry) {
+    LaunchedEffect(year?.code, kind, tab, favoriteSection, examSearchOpen,
+        subjectSelectionTarget, entriesRetry) {
         val currentYear = year ?: return@LaunchedEffect
-        val requestedKind = when (tab) {
-            RootTab.EXPLORE -> kind
-            RootTab.EXAMS -> if (examHomeSection == ExamHomeSection.SEARCH) SearchKind.COURSE
-                else SearchKind.SUBJECT
-            RootTab.LESSONS, RootTab.FAVORITES -> return@LaunchedEffect
+        val requestedKind = when {
+            subjectSelectionTarget?.year == currentYear.code -> SearchKind.SUBJECT
+            tab == RootTab.EXPLORE -> kind
+            tab == RootTab.EXAMS && examSearchOpen -> SearchKind.COURSE
+            tab == RootTab.FAVORITES && favoriteSection == FavoriteSection.SUBJECTS -> SearchKind.SUBJECT
+            else -> return@LaunchedEffect
         }
-        if (entries.containsKey(requestedKind)) return@LaunchedEffect
-        loadingEntries = true
+        if (entries.containsKey(requestedKind) || requestedKind in entriesAttempted) return@LaunchedEffect
         try {
             val fetched = withContext(Dispatchers.IO) { api.entries(requestedKind, currentYear.code) }
             val index = withContext(Dispatchers.Default) { SearchIndex(fetched) }
             entries = entries + (requestedKind to index)
+            entriesAttempted = entriesAttempted + requestedKind
             error = null
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (cause: Exception) {
+            entriesAttempted = entriesAttempted + requestedKind
             error = cause.message ?: "Impossibile caricare l'elenco."
-        } finally {
-            loadingEntries = false
         }
     }
 
-    LaunchedEffect(saved) {
+    LaunchedEffect(saved, savedScheduleRetry) {
+        val forceRefresh = savedScheduleForceRefresh
+        savedScheduleForceRefresh = false
         if (saved.isEmpty()) {
             savedSchedule = null
             savedScheduleLoading = false
+            savedScheduleAttempted = true
             ScheduleWidgetProvider.updateAll(context)
             return@LaunchedEffect
         }
+        val requestedSubjects = saved
         savedScheduleLoading = true
-        val cached = withContext(Dispatchers.IO) { runCatching { api.cachedSavedLessons(saved) }.getOrNull() }
-        if (cached != null) {
+        val cached = withContext(Dispatchers.IO) { runCatching { api.cachedSavedLessons(requestedSubjects) }.getOrNull() }
+        if (cached != null && saved == requestedSubjects) {
             savedSchedule = cached
             ScheduleWidgetProvider.updateAll(context)
         }
         try {
-            savedSchedule = withContext(Dispatchers.IO) { api.refreshSavedLessonsIfStale(saved) }
-            ScheduleWidgetProvider.updateAll(context)
+            val refreshed = withContext(Dispatchers.IO) {
+                if (forceRefresh) api.refreshSavedLessons(requestedSubjects)
+                else api.refreshSavedLessonsIfStale(requestedSubjects)
+            }
+            if (saved == requestedSubjects) {
+                savedSchedule = refreshed
+                ScheduleWidgetProvider.updateAll(context)
+            }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
             // The personal calendar remains available from its recent cache.
         } finally {
-            savedScheduleLoading = false
+            if (saved == requestedSubjects) {
+                savedScheduleAttempted = true
+                savedScheduleLoading = false
+            }
         }
     }
 
@@ -384,18 +411,12 @@ fun OrariApp(
         }
     }
     val examSubjectIndex = entries[SearchKind.SUBJECT]
-    val examFollowedResults by produceState<List<SearchItem>?>(null, examFollowedQuery, examSubjectIndex) {
-        if (examFollowedQuery.isNotBlank() && examSubjectIndex != null) {
-            delay(120)
-            value = withContext(Dispatchers.Default) {
-                examSubjectIndex.search(examFollowedQuery).filter { it.examSources.isNotEmpty() }
-            }
-        }
-    }
     val currentExamYear = year?.code.orEmpty()
-    val lessonExamSubjects = remember(saved, examSubjectIndex, currentExamYear) {
+    val lessonExamSubjects = remember(saved, examSubjectIndex, currentExamYear, excludedExamSubjects) {
         val byCode = examSubjectIndex?.items.orEmpty().associateBy { it.code }
-        saved.asSequence().filter { it.year == currentExamYear }.mapNotNull { subject ->
+        saved.asSequence().filter {
+            it.year == currentExamYear && (it.year to it.code) !in excludedExamSubjects
+        }.mapNotNull { subject ->
             val indexed = byCode[subject.code] ?: return@mapNotNull null
             if (indexed.examSources.isEmpty()) null else FollowedExamSubject(
                 subject.year, subject.code, subject.name, indexed.examSources)
@@ -403,6 +424,11 @@ fun OrariApp(
     }
     val manualExamSubjects = remember(followedExamSubjects, currentExamYear) {
         followedExamSubjects.filter { it.year == currentExamYear }.sortedBy { it.name }
+    }
+    val allFavoriteSubjects = remember(saved, followedExamSubjects, examSubjectIndex,
+        currentExamYear, excludedExamSubjects) {
+        favoriteSubjects(saved, followedExamSubjects, currentExamYear,
+            examSubjectIndex?.items, excludedExamSubjects)
     }
     val examAppealsWithNotes = remember(savedExamAppeals, examPlannerNote) {
         savedExamAppeals.asSequence()
@@ -559,6 +585,8 @@ fun OrariApp(
     }
 
     fun savedSelectionChanged() {
+        savedSchedule = null
+        savedScheduleAttempted = false
         NotificationBaselineStore(context).clear()
         store.lastLessonReminderKey = null
         NotificationScheduler.cancelLessonReminder(context)
@@ -574,14 +602,6 @@ fun OrariApp(
         scope.launch { snackbar.showAppSnackbar(message) }
     }
 
-    fun toggleSaved(subject: SavedSubject) {
-        val isSaved = saved.any { it.year == subject.year && it.code == subject.code }
-        if (isSaved) store.remove(subject) else store.add(subject)
-        saved = store.saved()
-        savedSelectionChanged()
-        showBriefSnackbar(if (isSaved) "Rimosso dai tuoi orari" else "Aggiunto ai tuoi orari")
-    }
-
     fun toggleFavorite(course: FavoriteCourse) {
         val isFavorite = favorites.any { it.year == course.year && it.code == course.code }
         if (isFavorite) store.removeFavoriteCourse(course) else store.addFavoriteCourse(course)
@@ -589,24 +609,72 @@ fun OrariApp(
         showBriefSnackbar(if (isFavorite) "Corso rimosso dai salvati" else "Corso salvato")
     }
 
-    fun toggleFollowedExamSubject(item: SearchItem) {
-        val yearCode = examCourseYear.takeIf { !it.isNullOrBlank() } ?: year?.code.orEmpty()
-        val existing = followedExamSubjects.firstOrNull { it.year == yearCode && it.code == item.code }
-        if (existing != null) {
-            store.removeFollowedExamSubject(existing)
-        } else {
-            store.addFollowedExamSubject(FollowedExamSubject(
-                yearCode, item.code, item.name, item.examSources))
+    fun editSubjectSelection(selectedYear: String, item: SearchItem) {
+        val existing = allFavoriteSubjects.firstOrNull {
+            it.year == selectedYear && it.code == item.code
         }
-        followedExamSubjects = store.followedExamSubjects()
-        showBriefSnackbar(if (existing != null) "Insegnamento rimosso dagli appelli seguiti"
-            else "Insegnamento aggiunto agli appelli seguiti")
+        val indexed = if (selectedYear == year?.code)
+            entries[SearchKind.SUBJECT]?.items?.firstOrNull { it.code == item.code }
+        else null
+        subjectSelectionTarget = SubjectSelectionTarget(selectedYear,
+            item.copy(examSources = (item.examSources + indexed?.examSources.orEmpty() +
+                existing?.examSources.orEmpty()).distinct()))
     }
 
-    fun removeFollowedExamSubject(subject: FollowedExamSubject) {
-        store.removeFollowedExamSubject(subject)
-        followedExamSubjects = store.followedExamSubjects()
-        showBriefSnackbar("Insegnamento rimosso dagli appelli seguiti")
+    fun setSubjectDestinations(target: SubjectSelectionTarget, inLessons: Boolean, inExams: Boolean) {
+        val item = target.item
+        val lesson = SavedSubject(target.year, item.code, item.name)
+        val wasLesson = saved.any { it.year == target.year && it.code == item.code }
+        val followed = followedExamSubjects.firstOrNull {
+            it.year == target.year && it.code == item.code
+        }
+        if (inLessons != wasLesson) {
+            if (inLessons) store.add(lesson) else store.remove(lesson)
+            saved = store.saved()
+            savedSelectionChanged()
+        }
+        val exclude = inLessons && !inExams
+        if (exclude != ((target.year to item.code) in excludedExamSubjects)) {
+            store.setExamSubjectExcluded(target.year, item.code, exclude)
+            excludedExamSubjects = store.excludedExamSubjects()
+        }
+        if (inExams) {
+            val sources = (followed?.sources.orEmpty() + item.examSources).distinct()
+            if (followed == null || followed.sources != sources) {
+                if (followed != null) store.removeFollowedExamSubject(followed)
+                store.addFollowedExamSubject(FollowedExamSubject(target.year, item.code, item.name, sources))
+                followedExamSubjects = store.followedExamSubjects()
+                examSelectionChanged()
+            }
+        } else if (followed != null) {
+            store.removeFollowedExamSubject(followed)
+            followedExamSubjects = store.followedExamSubjects()
+            examSelectionChanged()
+        }
+        showBriefSnackbar(when {
+            inLessons && inExams -> "Insegnamento seguito per lezioni e appelli"
+            inLessons -> "Insegnamento seguito per le lezioni"
+            inExams -> "Insegnamento seguito per gli appelli"
+            else -> "Insegnamento rimosso dai preferiti"
+        })
+    }
+
+    fun clearFavoriteSubjects() {
+        store.clear()
+        followedExamSubjects.forEach(store::removeFollowedExamSubject)
+        saved = emptyList()
+        followedExamSubjects = emptyList()
+        store.clearExcludedExamSubjects()
+        excludedExamSubjects = emptySet()
+        savedSelectionChanged()
+        examSelectionChanged()
+        showBriefSnackbar("Insegnamenti rimossi dai preferiti")
+    }
+
+    fun clearFavoriteCourses() {
+        favorites.forEach(store::removeFavoriteCourse)
+        favorites = emptyList()
+        showBriefSnackbar("Corsi di laurea rimossi dai preferiti")
     }
 
     fun openExamPlanner() {
@@ -649,8 +717,8 @@ fun OrariApp(
         val loadId = examLoadId
         val current = examData?.takeIf { it.courseCode == course.code && it.window == selectedWindow }
         if (current == null) examData = null
+        examRefreshing = true
         scope.launch {
-            examRefreshing = true
             error = null
             val cached = withContext(Dispatchers.IO) {
                 runCatching { examApi.cachedAppeals(course.code, selectedWindow) }.getOrNull()
@@ -708,8 +776,8 @@ fun OrariApp(
         val loadId = examLoadId
         val current = examData?.takeIf { it.courseCode == subject.code && it.window == selectedWindow }
         if (current == null) examData = null
+        examRefreshing = true
         scope.launch {
-            examRefreshing = true
             error = null
             val sources = subject.sources.distinctBy { it.courseCode to it.examSubjectCode }
             val cachedParts = withContext(Dispatchers.IO) {
@@ -789,13 +857,12 @@ fun OrariApp(
 
     fun moveWeek(amount: Long) {
         week = week.plusWeeks(amount)
-        selectedDay = preferredDay(calendar?.lessons.orEmpty(), week, weekend)
+        selectedDay = preferredDay(calendar?.lessons ?: savedSchedule?.lessons.orEmpty(), week, weekend)
     }
 
     fun showCalendar(
         title: String, yearCode: String, source: SearchItem?,
         combined: List<SavedSubject>? = null, openDay: LocalDate? = null,
-        openAgenda: Boolean = false, returnFromAgendaToCourse: Boolean = false,
         forceRefresh: Boolean = false
     ) {
         notificationsOpen = false
@@ -806,7 +873,6 @@ fun OrariApp(
         val loadId = calendarLoadId
         scope.launch {
             agendaOpen = false
-            agendaOpenedFromCourseDetail = openAgenda && returnFromAgendaToCourse
             error = null
             val sameCalendar = calendar?.let {
                 it.title == title && it.year == yearCode && it.source?.kind == source?.kind &&
@@ -831,7 +897,6 @@ fun OrariApp(
                 }
                 calendar = CalendarData(title, snapshot.lessons, yearCode, source,
                     snapshot.updatedAtMillis, offline, combined)
-                if (openAgenda) agendaOpen = true
             }
 
             val cached = withContext(Dispatchers.IO) {
@@ -915,6 +980,14 @@ fun OrariApp(
     )
 
     fun goBack() {
+        if (subjectSelectionTarget != null) {
+            subjectSelectionTarget = null
+            return
+        }
+        if (examSearchOpen && examCourse == null) {
+            examSearchOpen = false
+            return
+        }
         calendarLoadId++
         calendarRefreshing = false
         busy = false
@@ -931,11 +1004,7 @@ fun OrariApp(
             }
             examPlannerOpen -> examPlannerOpen = false
             lessonMonthOpen -> lessonMonthOpen = false
-            agendaOpen -> {
-                agendaOpen = false
-                if (agendaOpenedFromCourseDetail) calendar = null
-                agendaOpenedFromCourseDetail = false
-            }
+            agendaOpen -> agendaOpen = false
             examCourse != null -> {
                 examLoadId++
                 examRefreshing = false
@@ -958,12 +1027,28 @@ fun OrariApp(
         error = null
     }
 
-    BackHandler(enabled = notificationDetailEntry != null || examPlannerAppeal != null || examPlannerOpen || lessonMonthOpen || calendar != null || courseDetail != null || examCourse != null || agendaOpen || settings ||
+    BackHandler(enabled = notificationDetailEntry != null || examPlannerAppeal != null || examPlannerOpen || lessonMonthOpen || calendar != null || courseDetail != null || examCourse != null || examSearchOpen || subjectSelectionTarget != null || agendaOpen || settings ||
         notificationsOpen || notificationSettingsOpen) { goBack() }
 
     val showingRootTab = notificationDetailEntry == null && examPlannerAppeal == null && !examPlannerOpen && !lessonMonthOpen && calendar == null &&
         courseDetail == null && examCourse == null && !agendaOpen && !settings &&
         !notificationsOpen && !notificationSettingsOpen
+    val activeCatalogKind = when {
+        subjectSelectionTarget?.year == year?.code -> SearchKind.SUBJECT
+        examSearchOpen -> SearchKind.COURSE
+        showingRootTab && tab == RootTab.EXPLORE -> kind
+        showingRootTab && tab == RootTab.FAVORITES && favoriteSection == FavoriteSection.SUBJECTS -> SearchKind.SUBJECT
+        else -> null
+    }
+    val catalogLoading = activeCatalogKind != null && (
+        year == null && loadingYears || year != null &&
+            entries[activeCatalogKind] == null && activeCatalogKind !in entriesAttempted)
+
+    fun retryCatalog(requestedKind: SearchKind) {
+        entries = entries - requestedKind
+        entriesAttempted = entriesAttempted - requestedKind
+        entriesRetry++
+    }
 
     Scaffold(
         topBar = {
@@ -982,11 +1067,7 @@ fun OrariApp(
                         settings -> Text("Preferenze")
                         notificationSettingsOpen -> Text("Impostazioni notifiche")
                         notificationsOpen -> Text("Notifiche")
-                        else -> Column {
-                            Text("Orari UNIMI", style = MaterialTheme.typography.titleLarge)
-                            Text(year?.name ?: "Anno accademico", style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        else -> Text("Orari UNIMI", style = MaterialTheme.typography.titleLarge)
                     }
                 },
                 navigationIcon = {
@@ -997,19 +1078,13 @@ fun OrariApp(
                 },
                 actions = {
                     val shown = calendar
-                    if (shown != null && !agendaOpen && !lessonMonthOpen) IconButton(onClick = {
-                        agendaOpenedFromCourseDetail = false
-                        agendaOpen = true
-                        error = null
-                    }) {
-                        Icon(Icons.Outlined.ViewAgenda, contentDescription = "Apri vista agenda")
-                    }
                     if (shown?.source?.kind == SearchKind.SUBJECT && !agendaOpen && !lessonMonthOpen) {
-                        val subject = SavedSubject(shown.year, shown.source.code, shown.source.name)
-                        val isSaved = saved.any { it.year == subject.year && it.code == subject.code }
-                        IconButton(onClick = { toggleSaved(subject) }) {
+                        val isSaved = allFavoriteSubjects.any {
+                            it.year == shown.year && it.code == shown.source.code
+                        }
+                        IconButton(onClick = { editSubjectSelection(shown.year, shown.source) }) {
                             Icon(if (isSaved) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
-                            contentDescription = if (isSaved) "Rimuovi dai miei orari" else "Salva nei miei orari") }
+                            contentDescription = "Scegli Lezioni e Appelli per ${shown.source.name}") }
                     } else if (examCourse == null && !agendaOpen && !lessonMonthOpen && (shown?.source?.kind == SearchKind.COURSE ||
                         calendar == null && courseDetail != null)) {
                         val detail = if (shown?.source?.kind == SearchKind.COURSE)
@@ -1035,30 +1110,27 @@ fun OrariApp(
                             Icon(Icons.Outlined.Settings, contentDescription = "Preferenze")
                         }
                     }
+                    if (shown != null && examCourse == null && examPlannerAppeal == null &&
+                        !examPlannerOpen && notificationDetailEntry == null && !notificationsOpen &&
+                        !settings && !agendaOpen && !lessonMonthOpen) {
+                        IconButton(onClick = { agendaOpen = true }) {
+                            Icon(Icons.Outlined.ViewAgenda, contentDescription = "Apri agenda")
+                        }
+                    }
                 }
             )
         },
         bottomBar = {
-            if (showingRootTab) NavigationBar {
-                NavigationBarItem(
-                    selected = tab == RootTab.LESSONS,
-                    onClick = { tab = RootTab.LESSONS; error = null },
-                    icon = { Icon(Icons.Outlined.CalendarMonth, contentDescription = null) }, label = { Text("Lezioni") }
-                )
-                NavigationBarItem(
-                    selected = tab == RootTab.EXAMS,
-                    onClick = { tab = RootTab.EXAMS; error = null },
-                    icon = { Icon(Icons.Outlined.EventAvailable, contentDescription = null) }, label = { Text("Appelli") }
-                )
-                NavigationBarItem(
-                    selected = tab == RootTab.EXPLORE,
-                    onClick = { tab = RootTab.EXPLORE; error = null },
-                    icon = { Icon(Icons.Outlined.Search, contentDescription = null) }, label = { Text("Esplora") }
-                )
-                NavigationBarItem(
-                    selected = tab == RootTab.FAVORITES,
-                    onClick = { tab = RootTab.FAVORITES; error = null },
-                    icon = { Icon(Icons.Outlined.BookmarkBorder, contentDescription = null) }, label = { Text("Preferiti") }
+            if (showingRootTab) {
+                AppBottomNavigation(
+                    items = listOf(
+                        AppNavigationItem("Lezioni", Icons.Outlined.CalendarMonth),
+                        AppNavigationItem("Appelli", Icons.Outlined.EventAvailable),
+                        AppNavigationItem("Esplora", Icons.Outlined.Search),
+                        AppNavigationItem("Preferiti", Icons.Outlined.BookmarkBorder)
+                    ),
+                    selectedIndex = tab.index,
+                    onSelect = { index -> tab = RootTab.fromIndex(index); error = null }
                 )
             }
         },
@@ -1066,14 +1138,15 @@ fun OrariApp(
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             Column(Modifier.fillMaxSize()) {
-                if (loadingEntries && tab == RootTab.EXPLORE && showingRootTab || busy) {
+                val lessonsLoading = showingRootTab && tab == RootTab.LESSONS && saved.isNotEmpty() &&
+                    (savedScheduleLoading || savedSchedule == null && !savedScheduleAttempted)
+                if (catalogLoading || lessonsLoading || examCourse != null && examRefreshing ||
+                    calendar != null && calendarRefreshing || busy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
                 if (error != null) ErrorBanner(error!!, onDismiss = { error = null },
-                    onRetry = if (year == null) {{ yearRetry++ }} else if (calendar == null && courseDetail == null && tab == RootTab.EXPLORE) {{
-                        entries = entries - kind
-                        entriesRetry++
-                    }} else null)
+                    onRetry = if (year == null) {{ yearRetry++ }}
+                        else activeCatalogKind?.let { requested -> { retryCatalog(requested) } })
                 when {
                     notificationDetailEntry != null -> {
                         val entry = notificationDetailEntry!!
@@ -1205,15 +1278,13 @@ fun OrariApp(
                     )
                     agendaOpen -> ScheduleAgendaScreen(
                         lessons = calendar?.lessons ?: savedSchedule?.lessons,
-                        loading = if (calendar != null) calendarRefreshing else savedScheduleLoading,
+                        loading = if (calendar != null) calendarRefreshing
+                            else savedScheduleLoading || !savedScheduleAttempted,
                         weekend = weekend,
                         onOpenDay = { day ->
-                            if (calendar != null) {
-                                agendaOpen = false
-                                agendaOpenedFromCourseDetail = false
-                                week = startOfWeek(day)
-                                selectedDay = day
-                            } else showCalendar("Lezioni", year?.code.orEmpty(), null, saved, day)
+                            agendaOpen = false
+                            week = startOfWeek(day)
+                            selectedDay = day
                         }
                     )
                     examPlannerAppeal != null -> {
@@ -1276,14 +1347,8 @@ fun OrariApp(
                         }
                         ExamsScreen(
                             courses = examCourseIndex?.items,
-                            academicYear = examCourseYear.orEmpty(),
-                            section = examHomeSection,
                             query = examQuery,
                             results = examResults,
-                            followedQuery = examFollowedQuery,
-                            followedResults = examFollowedResults,
-                            lessonSubjects = lessonExamSubjects,
-                            manualSubjects = manualExamSubjects,
                             selectedItem = selected,
                             selectedSubjectFromLessons = examSubject?.let { subject ->
                                 lessonExamSubjects.any { it.year == subject.year && it.code == subject.code }
@@ -1296,17 +1361,15 @@ fun OrariApp(
                             updatedAtMillis = shown?.snapshot?.updatedAtMillis,
                             offline = shown?.offline == true,
                             errorMessage = examError,
-                            loadingCourses = loadingEntries,
+                            loadingCourses = catalogLoading,
                             refreshing = examRefreshing,
                             savedAppeals = savedExamAppeals,
                             appealsWithNotes = examAppealsWithNotes,
                             onQuery = { examQuery = it },
-                            onFollowedQuery = { examFollowedQuery = it },
-                            onSection = { examHomeSection = it },
                             onSelectCourse = { showExams(it) },
-                            onSelectSubject = ::showSubjectExams,
-                            onToggleManualSubject = ::toggleFollowedExamSubject,
-                            onRemoveManualSubject = ::removeFollowedExamSubject,
+                            onToggleManualSubject = { item ->
+                                editSubjectSelection(examCourseYear ?: year?.code.orEmpty(), item)
+                            },
                             onWindow = { selectedWindow ->
                                 val subject = examSubject
                                 if (subject != null) showSubjectExams(subject, selectedWindow)
@@ -1317,8 +1380,7 @@ fun OrariApp(
                                 if (subject != null) showSubjectExams(subject, examWindow)
                                 else showExams(selected, examWindow, examOpenedFromCourseDetail, examCourseYear)
                             },
-                            onRetryCourses = { entries = entries - SearchKind.COURSE; entriesRetry++ },
-                            onRetrySubjects = { entries = entries - SearchKind.SUBJECT; entriesRetry++ },
+                            onRetryCourses = { retryCatalog(SearchKind.COURSE) },
                             onOpenPlanner = ::openExamPlanner,
                             onOpenAppeal = {
                                 examPlannerAppeal = it
@@ -1329,8 +1391,8 @@ fun OrariApp(
                             onAddToCalendar = ::addExamToCalendar
                         )
                     }
-                    lessonMonthOpen && calendar != null -> LessonMonthScreen(
-                        lessons = calendar!!.lessons,
+                    lessonMonthOpen -> LessonMonthScreen(
+                        lessons = calendar?.lessons ?: savedSchedule?.lessons.orEmpty(),
                         initialDay = selectedDay,
                         weekend = weekend,
                         onOpenDay = { day ->
@@ -1341,10 +1403,11 @@ fun OrariApp(
                     )
                     calendar != null -> {
                         val shown = calendar!!
-                        CalendarScreen(shown, week, selectedDay, weekend, saved,
+                        CalendarScreen(shown, week, selectedDay, weekend, allFavoriteSubjects,
                             refreshing = calendarRefreshing,
                             onToggleSubject = { lesson ->
-                                toggleSaved(SavedSubject(shown.year, lesson.subjectCode, lesson.subject))
+                                editSubjectSelection(shown.year, SearchItem(lesson.subjectCode,
+                                    lesson.subject, SearchKind.SUBJECT))
                             },
                             onRefresh = { showCalendar(shown.title, shown.year, shown.source,
                                 shown.combinedSubjects, forceRefresh = true) },
@@ -1355,15 +1418,9 @@ fun OrariApp(
                     }
                     courseDetail != null -> {
                         val detail = courseDetail!!
-                        val favorite = FavoriteCourse(detail.year, detail.course.code, detail.course.name,
-                            detail.course.degreeType ?: DegreeType.OTHER)
                         CourseDetailScreen(detail.course, detail.year,
-                            favorite = favorites.any { it.year == favorite.year && it.code == favorite.code },
-                            savedSubjects = saved,
-                            onToggleFavorite = { toggleFavorite(favorite) },
+                            preferredSubjects = allFavoriteSubjects,
                             onOpenCalendar = { showCalendar(detail.course.name, detail.year, detail.course) },
-                            onOpenAgenda = { showCalendar(detail.course.name, detail.year, detail.course,
-                                openAgenda = true, returnFromAgendaToCourse = true) },
                             onOpenExams = { showExams(detail.course, returnToCourseDetail = true,
                                 courseYear = detail.year) },
                             onOpenTeaching = { teaching ->
@@ -1371,95 +1428,175 @@ fun OrariApp(
                                     SearchItem(teaching.code, teaching.name, SearchKind.SUBJECT))
                             },
                             onToggleTeaching = { teaching ->
-                                toggleSaved(SavedSubject(detail.year, teaching.code, teaching.name))
+                                editSubjectSelection(detail.year, SearchItem(teaching.code,
+                                    teaching.name, SearchKind.SUBJECT))
                             })
                     }
                     tab == RootTab.EXPLORE -> SearchScreen(
                         years = years, year = year, loadingYears = loadingYears,
-                        kind = kind, query = query, results = results, loadingEntries = loadingEntries,
-                        favorites = favorites,
-                        onYear = { selected -> year = selected; entries = emptyMap(); query = ""; error = null },
+                        kind = kind, query = query, results = results,
+                        loadingEntries = year == null && loadingYears ||
+                            year != null && entries[kind] == null && kind !in entriesAttempted,
+                        favorites = favorites, selectedSubjects = allFavoriteSubjects,
+                        onYear = { selected ->
+                            year = selected
+                            entries = emptyMap()
+                            entriesAttempted = emptySet()
+                            query = ""
+                            examQuery = ""
+                            error = null
+                        },
                         onKind = { kind = it; query = ""; error = null },
                         onQuery = { query = it }, onSelect = ::openItem,
                         onToggleCourseFavorite = { item ->
                             year?.let { selected -> toggleFavorite(FavoriteCourse(selected.code, item.code,
                                 item.name, item.degreeType ?: DegreeType.OTHER)) }
                         },
+                        onEditSubject = { item ->
+                            year?.let { selected -> editSubjectSelection(selected.code, item) }
+                        },
                         onRetryYears = { yearRetry++ }, onRetryEntries = {
-                            entries = entries - kind
-                            entriesRetry++
+                            retryCatalog(kind)
                         }
                     )
-                    tab == RootTab.LESSONS -> LessonsScreen(
-                        saved = saved,
-                        personalLessons = savedSchedule?.lessons,
-                        loadingPersonal = savedScheduleLoading,
-                        onOpen = ::openSaved,
-                        onCombined = { showCalendar("Lezioni", year?.code.orEmpty(), null, saved) },
-                        onOpenNext = { day ->
-                            showCalendar("Lezioni", year?.code.orEmpty(), null, saved, day)
-                        },
-                        onAgenda = {
-                            agendaOpenedFromCourseDetail = false
-                            agendaOpen = true
-                            error = null
-                        },
-                        onAdd = { tab = RootTab.EXPLORE; kind = SearchKind.SUBJECT; query = "" },
-                        onRemove = { store.remove(it); saved = store.saved(); savedSelectionChanged() },
-                        onClear = { store.clear(); saved = emptyList(); savedSelectionChanged() }
+                    tab == RootTab.LESSONS && saved.isEmpty() -> LessonsEmptyScreen(
+                        onManage = { tab = RootTab.FAVORITES; favoriteSection = FavoriteSection.SUBJECTS }
                     )
-                    tab == RootTab.EXAMS -> ExamsScreen(
-                        courses = examCourseIndex?.items,
-                        academicYear = year?.code.orEmpty(),
-                        section = examHomeSection,
-                        query = examQuery,
-                        results = examResults,
-                        followedQuery = examFollowedQuery,
-                        followedResults = examFollowedResults,
-                        lessonSubjects = lessonExamSubjects,
-                        manualSubjects = manualExamSubjects,
-                        selectedItem = null,
-                        selectedSubjectFromLessons = false,
-                        selectedSubjectManual = false,
-                        window = examWindow,
-                        appeals = null,
-                        updatedAtMillis = null,
-                        offline = false,
-                        errorMessage = null,
-                        loadingCourses = loadingEntries,
-                        refreshing = false,
+                    tab == RootTab.LESSONS -> {
+                        val snapshot = savedSchedule
+                        if (snapshot != null) CalendarScreen(
+                            calendar = CalendarData("Lezioni", snapshot.lessons,
+                                year?.code.orEmpty(), null, snapshot.updatedAtMillis,
+                                offline = false, combinedSubjects = saved),
+                            week = week, selectedDay = selectedDay, weekend = weekend,
+                            preferredSubjects = allFavoriteSubjects,
+                            onToggleSubject = { lesson ->
+                                editSubjectSelection(year?.code.orEmpty(),
+                                    SearchItem(lesson.subjectCode, lesson.subject, SearchKind.SUBJECT))
+                            },
+                            refreshing = savedScheduleLoading,
+                            onRefresh = { savedScheduleForceRefresh = true; savedScheduleRetry++ },
+                            onMoveWeek = ::moveWeek,
+                            onSelectDay = { day -> week = startOfWeek(day); selectedDay = day },
+                            onOpenMonth = { lessonMonthOpen = true },
+                            rootLessons = true,
+                            onOpenAgenda = { agendaOpen = true },
+                            onManageSubjects = {
+                                tab = RootTab.FAVORITES
+                                favoriteSection = FavoriteSection.SUBJECTS
+                            }
+                        ) else Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp)) {
+                            AppScreenHeader("Lezioni", "Il tuo orario settimanale")
+                            if (savedScheduleLoading || !savedScheduleAttempted) AppLoadingState()
+                            else AppEmptyState(
+                                title = "Orario non disponibile",
+                                message = "Non riesco a recuperare le lezioni. Riprova tra poco.",
+                                action = "Riprova",
+                                onAction = { savedScheduleAttempted = false; savedScheduleRetry++ }
+                            )
+                        }
+                    }
+                    tab == RootTab.EXAMS -> ExamPlannerScreen(
                         savedAppeals = savedExamAppeals,
+                        removedNotices = removedExamNotices,
                         appealsWithNotes = examAppealsWithNotes,
-                        onQuery = { examQuery = it },
-                        onFollowedQuery = { examFollowedQuery = it },
-                        onSection = { examHomeSection = it },
-                        onSelectCourse = { showExams(it) },
-                        onSelectSubject = ::showSubjectExams,
-                        onToggleManualSubject = ::toggleFollowedExamSubject,
-                        onRemoveManualSubject = ::removeFollowedExamSubject,
-                        onWindow = {},
-                        onRefresh = {},
-                        onRetryCourses = { entries = entries - SearchKind.COURSE; entriesRetry++ },
-                        onRetrySubjects = { entries = entries - SearchKind.SUBJECT; entriesRetry++ },
-                        onOpenPlanner = ::openExamPlanner,
-                        onOpenAppeal = {
+                        showSaved = examPlannerSavedMode,
+                        onShowSaved = { examPlannerSavedMode = it },
+                        embedded = true,
+                        rootMode = true,
+                        onSearch = { examSearchOpen = true; examQuery = "" },
+                        onFavorites = {
+                            tab = RootTab.FAVORITES
+                            favoriteSection = FavoriteSection.SUBJECTS
+                        },
+                        onSelectAppeal = {
                             examPlannerAppeal = it
                             examPlannerAppealAvailable = true
                             examPlannerNote = store.examNote(it)
                         },
-                        onToggleSavedAppeal = ::toggleSavedExamAppeal,
-                        onAddToCalendar = ::addExamToCalendar
+                        onSelectRemoved = { notice ->
+                            notificationDetailReturnsToCenter = false
+                            notificationDetailEntry = AppNotificationEntry(
+                                id = notice.id,
+                                type = AppNotificationType.EXAM_CHANGE,
+                                title = "Appello non più disponibile",
+                                message = "${notice.appeal.subjectName}: l’appello del ${notice.appeal.date} non risulta più pubblicato.",
+                                timestampMillis = notice.detectedAtMillis,
+                                targetDate = notice.appeal.date,
+                                targetKey = ExamNotificationEngine.identity(notice.appeal),
+                                targetTitle = notice.appeal.subjectName,
+                                changes = listOf(NotificationFieldChange(
+                                    "Stato", "Disponibile", "Non più pubblicato"))
+                            )
+                        },
+                        onDismissRemoved = { notice ->
+                            store.dismissRemovedExamNotice(notice.id)
+                            removedExamNotices = store.removedExamNotices()
+                        }
                     )
                     else -> FavoritesScreen(
-                        favorites = favorites,
+                        courses = favorites,
+                        subjects = allFavoriteSubjects,
+                        section = favoriteSection,
+                        examIndexLoading = catalogLoading,
+                        onSection = { favoriteSection = it },
                         onOpenCourse = ::openFavorite,
+                        onOpenLesson = { openSaved(SavedSubject(it.year, it.code, it.name)) },
+                        onOpenExams = { subject ->
+                            if (subject.examSources.isNotEmpty()) showSubjectExams(FollowedExamSubject(
+                                subject.year, subject.code, subject.name, subject.examSources))
+                            else showBriefSnackbar("Appelli non disponibili per questo insegnamento")
+                        },
                         onRemoveCourse = ::toggleFavorite,
-                        onExploreCourses = { tab = RootTab.EXPLORE; kind = SearchKind.COURSE; query = "" }
+                        onEditSubject = { subject ->
+                            editSubjectSelection(subject.year, SearchItem(subject.code,
+                                subject.name, SearchKind.SUBJECT, examSources = subject.examSources))
+                        },
+                        onAddCourse = { tab = RootTab.EXPLORE; kind = SearchKind.COURSE; query = "" },
+                        onAddSubject = { tab = RootTab.EXPLORE; kind = SearchKind.SUBJECT; query = "" },
+                        onClearCourses = ::clearFavoriteCourses,
+                        onClearSubjects = ::clearFavoriteSubjects
                     )
                 }
             }
             if (busy) CircularProgressIndicator(Modifier.align(androidx.compose.ui.Alignment.Center))
         }
+    }
+    if (examSearchOpen && examCourse == null) ExamCourseSearchSheet(
+        courses = examCourseIndex?.items,
+        query = examQuery,
+        results = examResults,
+        loading = catalogLoading,
+        onQuery = { examQuery = it },
+        onSelect = { course -> examSearchOpen = false; showExams(course) },
+        onRetry = { retryCatalog(SearchKind.COURSE) },
+        onDismiss = { examSearchOpen = false }
+    )
+    subjectSelectionTarget?.let { target ->
+        val currentIndex = if (target.year == year?.code) entries[SearchKind.SUBJECT] else null
+        val indexed = currentIndex?.items?.firstOrNull { it.code == target.item.code }
+        val completeItem = target.item.copy(examSources =
+            (target.item.examSources + indexed?.examSources.orEmpty()).distinct())
+        val needsExamIndex = target.year == year?.code && currentIndex == null &&
+            completeItem.examSources.isEmpty()
+        val existing = allFavoriteSubjects.firstOrNull {
+            it.year == target.year && it.code == target.item.code
+        }
+        SubjectSelectionSheet(
+            year = target.year,
+            subject = completeItem,
+            inLessons = existing?.inLessons == true,
+            inExams = existing?.inExams == true,
+            alreadySaved = existing != null,
+            loadingExams = needsExamIndex && SearchKind.SUBJECT !in entriesAttempted,
+            examLookupFailed = needsExamIndex && SearchKind.SUBJECT in entriesAttempted,
+            onRetryExams = { retryCatalog(SearchKind.SUBJECT) },
+            onDismiss = { subjectSelectionTarget = null },
+            onApply = { lessons, exams ->
+                subjectSelectionTarget = null
+                setSubjectDestinations(target.copy(item = completeItem), lessons, exams)
+            }
+        )
     }
 }
 

@@ -209,6 +209,32 @@ class LocalStore(context: Context) {
         followedExamSubjects().filterNot { it.year == subject.year && it.code == subject.code }
     )
 
+    fun excludedExamSubjects(): Set<Pair<String, String>> = try {
+        val values = JSONArray(preferences.getString("excluded_exam_subjects", "[]"))
+        (0 until values.length()).mapNotNull { index ->
+            val item = values.optJSONObject(index) ?: return@mapNotNull null
+            val year = item.optString("year")
+            val code = item.optString("code")
+            if (year.isBlank() || code.isBlank()) null else year to code
+        }.toSet()
+    } catch (_: Exception) {
+        emptySet()
+    }
+
+    fun setExamSubjectExcluded(year: String, code: String, excluded: Boolean) {
+        val updated = excludedExamSubjects().toMutableSet()
+        if (excluded) updated.add(year to code) else updated.remove(year to code)
+        val values = JSONArray()
+        updated.forEach { (itemYear, itemCode) ->
+            values.put(JSONObject().put("year", itemYear).put("code", itemCode))
+        }
+        preferences.edit().putString("excluded_exam_subjects", values.toString()).commit()
+    }
+
+    fun clearExcludedExamSubjects() {
+        preferences.edit().remove("excluded_exam_subjects").commit()
+    }
+
     fun savedExamAppeals(): List<ExamAppeal> = try {
         val values = JSONArray(preferences.getString("saved_exam_appeals", "[]"))
         val parsed = (0 until values.length()).mapNotNull { index ->
