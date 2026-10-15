@@ -35,6 +35,17 @@ class RoomApiTest {
         assertEquals(1, calls.get())
     }
 
+    @Test fun streetNumberDoesNotMatchAClassroomOrPartOfAnotherNumber() {
+        val celoria2 = UnimiRoom("site-2#room-20", "20", "site-2", "Celoria 2", 40,
+            "Via Celoria, 2, Milano")
+        val celoria20 = room
+        val index = RoomSearchIndex(listOf(celoria2, celoria20))
+
+        assertEquals(listOf("24010"), index.search("celoria, 20").map { it.code })
+        assertEquals(listOf("site-2"), index.search("Celoria 2").map { it.code })
+        assertEquals(listOf("site-2"), index.search("aula 20 celoria").map { it.code })
+    }
+
     @Test fun buildingPlanningUsesOneRequestForAllRoomsAndReusesItForRoomDetail() = withCache { cache ->
         val calls = AtomicInteger()
         val api = RoomApi(cache, transport = { path, encoded, get ->

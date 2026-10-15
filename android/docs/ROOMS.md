@@ -7,6 +7,10 @@ loro occupazione corrente. Aprire un'aula mostra gli impegni del giorno, con
 navigazione ai giorni precedenti e successivi. Se l'indirizzo non è pubblicato,
 l'app lo indica senza inventarne uno.
 
+La ricerca dà precedenza a nome e indirizzo dell'edificio; solo se non trova
+una sede cerca tra le aule. Un numero civico deve corrispondere per intero:
+"Celoria, 20" non include via Celoria 2 solo perché lì c'è un'aula 20.
+
 ## Sorgenti pubbliche di AgendaWeb
 
 Il catalogo arriva da `POST rooms_call.php` con `form-type`, `view` e `include`

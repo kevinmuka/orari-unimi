@@ -81,22 +81,38 @@ class RoomSearchIndex(rooms: List<UnimiRoom>) {
             inBuilding.sortedBy { it.name.lowercase(Locale.ITALIAN) })
     }.sortedBy { it.name.lowercase(Locale.ITALIAN) }
     private val indexed = buildings.map { building ->
-        building to normalized(buildString {
-            append("${building.name} ${building.address} ${building.code} ")
-            building.rooms.forEach { append("aula ${it.name} ${it.code} ") }
+        val location = "${building.name} ${building.address} ${building.code}"
+        IndexedBuilding(building, normalized(location), building.rooms.map { room ->
+            normalized("aula ${room.name} ${room.code} ${building.name}")
         })
     }
 
     fun search(query: String): List<UnimiBuilding> {
         val words = normalized(query).split(' ').filter(String::isNotBlank)
         if (words.isEmpty()) return buildings
-        return indexed.asSequence().filter { (_, text) -> words.all(text::contains) }
-            .map { it.first }.toList()
+        val byLocation = indexed.filter { matches(it.location, words) }
+        if (byLocation.isNotEmpty()) return byLocation.map { it.building }
+        return indexed.filter { entry -> entry.rooms.any { matches(it, words) } }
+            .map { it.building }
+    }
+
+    private fun matches(text: String, words: List<String>): Boolean {
+        val tokens = text.split(' ')
+        return words.all { word ->
+            if (word.all(Char::isDigit)) word in tokens else text.contains(word)
+        }
     }
 
     private fun normalized(value: String): String = Normalizer.normalize(
         value.lowercase(Locale.ITALIAN), Normalizer.Form.NFD
-    ).replace(Regex("\\p{M}+"), "").replace(Regex("\\s+"), " ").trim()
+    ).replace(Regex("\\p{M}+"), "")
+        .replace(Regex("[^\\p{L}\\p{N}#]+"), " ").trim()
+
+    private data class IndexedBuilding(
+        val building: UnimiBuilding,
+        val location: String,
+        val rooms: List<String>
+    )
 }
 
 /** Public AgendaWeb room catalog and daily planning; no request is made per search result. */
