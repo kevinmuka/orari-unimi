@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
@@ -184,27 +183,13 @@ fun CourseDetailScreen(
                 "$pathIndex:$teachingIndex:${teaching.code}"
             }) { _, teaching ->
                 val isSaved = preferredSubjects.any { it.year == year && it.code == teaching.code }
-                Card(onClick = { onOpenTeaching(teaching) }, shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-                    Row(Modifier.fillMaxWidth().padding(start = 14.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                        Icon(Icons.AutoMirrored.Outlined.MenuBook, contentDescription = null,
-                            tint = palette.accent, modifier = Modifier.size(22.dp))
-                        Spacer(Modifier.width(11.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(teaching.name, style = MaterialTheme.typography.titleSmall,
-                                maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(listOf(teaching.code, teaching.teacher).filter { it.isNotBlank() }.joinToString(" · "),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        IconButton(onClick = { onToggleTeaching(teaching) }) {
-                            Icon(if (isSaved) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
-                                contentDescription = "Scegli Lezioni e Appelli per ${teaching.name}")
-                        }
-                    }
-                }
+                SubjectCard(name = teaching.name,
+                    supportingText = listOf(teaching.code, teaching.teacher)
+                        .filter { it.isNotBlank() }.joinToString(" · "),
+                    actionIcon = if (isSaved) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+                    actionDescription = "Scegli Lezioni e Appelli per ${teaching.name}",
+                    onAction = { onToggleTeaching(teaching) },
+                    onOpen = { onOpenTeaching(teaching) })
             }
         }
     }

@@ -655,7 +655,11 @@ private fun RowScope.ExamPlannerDay(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val indicatorOffset by animateDpAsState(
-        targetValue = if (selected || today) 24.dp else 17.dp,
+        targetValue = when {
+            count >= 4 && (selected || today) -> 27.dp
+            selected || today -> 24.dp
+            else -> 17.dp
+        },
         animationSpec = tween(180, easing = FastOutSlowInEasing),
         label = "exam-day-indicator-offset"
     )
@@ -687,23 +691,16 @@ private fun RowScope.ExamPlannerDay(
                     })
             }
         }
-        if (count > 0) {
-            Row(
-                modifier = Modifier.align(Alignment.Center)
-                    .offset { IntOffset(0, indicatorOffset.roundToPx()) },
-                horizontalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                repeat(count.coerceAtMost(3)) {
-                    Box(Modifier.size(4.dp).background(
-                        when {
-                            selected -> MaterialTheme.colorScheme.onPrimary
-                            !inCurrentMonth -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                            else -> MaterialTheme.colorScheme.primary
-                        },
-                        CircleShape))
-                }
-            }
-        }
+        CalendarItemIndicator(
+            count = count,
+            color = when {
+                selected -> MaterialTheme.colorScheme.onPrimary
+                !inCurrentMonth -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                else -> MaterialTheme.colorScheme.primary
+            },
+            modifier = Modifier.align(Alignment.Center)
+                .offset { IntOffset(0, indicatorOffset.roundToPx()) }
+        )
     }
 }
 

@@ -14,7 +14,10 @@ La vista agenda mostra gli orari dalle 08:30 alle 19:30 e permette di passare
 tra la modalità giornaliera e quella settimanale, con scorrimento libero in
 entrambe le direzioni. È disponibile sia per il calendario personale sia per i
 corsi di laurea. Il widget riassume le lezioni del giorno in formato agenda e
-consente di passare al giorno precedente o successivo.
+consente di passare al giorno precedente o successivo. Dopo il cambio di data
+torna alla giornata corrente al primo aggiornamento del widget; un tocco al
+centro dell'intestazione riporta subito a oggi. La visibilità del weekend segue
+la preferenza dell'app.
 La sezione Appelli consulta gli esami pubblicati per ogni corso di laurea e li
 raggruppa per data. Si possono vedere gli appelli di oggi, dei prossimi 30 giorni
 o tutti quelli programmati, controllare aula, docente, tipo di prova e periodo
@@ -82,6 +85,8 @@ gestita automaticamente da Android.
 La struttura delle destinazioni, i componenti condivisi e le funzioni da
 preservare nei prossimi interventi sono descritti in
 [docs/UX_ARCHITECTURE.md](docs/UX_ARCHITECTURE.md).
+Le modifiche introdotte nella versione 1.10.0 sono raccolte nelle
+[note di rilascio](docs/RELEASE_1.10.0.md).
 
 ## Compilazione
 

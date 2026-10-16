@@ -55,7 +55,7 @@ apre dal calendario delle lezioni del corso, e Indietro torna a quel calendario.
 | Appelli | calendario degli appelli salvati, lista cronologica, ricerca per corso, oggi/30 giorni/tutti, dettagli, calendario Android, note personali, avvisi persistenti per appelli rimossi |
 | Preferiti | insegnamenti usati nelle lezioni o seguiti solo per gli appelli, corsi di laurea salvati, aggiunta e rimozione |
 | Notifiche | variazioni con Prima/Dopo, prossima lezione, iscrizioni agli appelli, aggiornamenti, inbox, refresh e cancellazione con annulla |
-| Widget | agenda del giorno, navigazione tra date, ritorno a oggi, weekend coerente con le preferenze |
+| Widget | agenda del giorno, navigazione tra date, ritorno a oggi al cambio di data o con un tocco, weekend coerente con le preferenze |
 | Preferenze | weekend, notifiche, anticipi dei promemoria, diagnostica discreta, controllo e installazione aggiornamenti |
 
 ## Componenti condivisi
@@ -71,6 +71,8 @@ schermate:
   di aggiunta;
 - `AppSegmentedControl` per selettori animati come giorno/settimana,
   finestra degli appelli, viste di Appelli e categorie di Preferiti;
+- `CalendarItemIndicator` per conteggi identici nei calendari mensili di
+  lezioni e appelli: fino a tre pallini, poi il numero esatto;
 - `AppEmptyState` per stati vuoti e relativi inviti all'azione.
 - `AppLoadingState` per il progresso circolare nel contenuto; la barra sottile
   superiore segnala un recupero attivo senza coprire i dati già disponibili;
@@ -85,8 +87,9 @@ contesto del calendario.
 
 `DegreeCourseCard` è l'unica scheda dei corsi di laurea usata da ricerca,
 Appelli e Preferiti. Colore, icona e gerarchia del testo devono quindi evolvere
-insieme. Gli insegnamenti preferiti usano una scheda distinta perché mostrano
-anche se alimentano le lezioni o soltanto gli appelli.
+insieme. `SubjectCard` è condivisa tra ricerca, dettaglio di un corso e
+Preferiti; in quest'ultima destinazione mostra le azioni Lezioni e Appelli
+disponibili, lasciando la modifica della selezione all'icona dedicata.
 
 La versione 1.9.0 compatta Esplora: l'anno accademico si sceglie
 accanto alla sua etichetta, seguito da categoria e ricerca. Il selettore apre

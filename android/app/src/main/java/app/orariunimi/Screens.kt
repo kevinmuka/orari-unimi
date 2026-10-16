@@ -1,8 +1,11 @@
 package app.orariunimi
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
@@ -62,6 +65,7 @@ import androidx.compose.material.icons.outlined.EventAvailable
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.MeetingRoom
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Place
@@ -147,11 +151,13 @@ private val lessonColors = listOf(
 fun SearchScreen(
     years: List<AcademicYear>, year: AcademicYear?, loadingYears: Boolean,
     kind: SearchKind, query: String, results: List<SearchItem>?, loadingEntries: Boolean,
+    roomsMode: Boolean, roomQuery: String, roomResults: List<UnimiBuilding>?,
+    roomLoading: Boolean, roomError: String?,
     favorites: List<FavoriteCourse>,
     selectedSubjects: List<FavoriteSubject>,
     onYear: (AcademicYear) -> Unit, onKind: (SearchKind) -> Unit,
-    onRooms: () -> Unit,
-    initialCategory: Int,
+    onRooms: () -> Unit, onRoomQuery: (String) -> Unit,
+    onOpenBuilding: (UnimiBuilding) -> Unit, onRetryRooms: () -> Unit,
     onQuery: (String) -> Unit, onSelect: (SearchItem) -> Unit,
     onToggleCourseFavorite: (SearchItem) -> Unit,
     onEditSubject: (SearchItem) -> Unit,
@@ -191,35 +197,52 @@ fun SearchScreen(
                     title = "Esplora",
                     subtitle = "Corsi, docenti, insegnamenti e aule UNIMI"
                 )
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Anno accademico", Modifier.weight(1f),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    OutlinedButton(
-                        onClick = { yearMenu = true },
-                        enabled = years.isNotEmpty(),
-                        shape = RoundedCornerShape(16.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                AnimatedVisibility(visible = !roomsMode,
+                    enter = expandVertically(animationSpec = tween(240), expandFrom = Alignment.Top) +
+                        fadeIn(animationSpec = tween(170)),
+                    exit = shrinkVertically(animationSpec = tween(220), shrinkTowards = Alignment.Top) +
+                        fadeOut(animationSpec = tween(120))) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(year?.name ?: "Seleziona", style = MaterialTheme.typography.labelLarge)
-                        Spacer(Modifier.width(5.dp))
-                        Icon(Icons.Outlined.KeyboardArrowDown,
-                            contentDescription = null, modifier = Modifier.size(18.dp))
+                        Text("Anno accademico", Modifier.weight(1f),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        OutlinedButton(
+                            onClick = { yearMenu = true },
+                            enabled = years.isNotEmpty(),
+                            shape = RoundedCornerShape(16.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Text(year?.name ?: "Seleziona", style = MaterialTheme.typography.labelLarge)
+                            Spacer(Modifier.width(5.dp))
+                            Icon(Icons.Outlined.KeyboardArrowDown,
+                                contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
-                ExploreCategoryTabs(SearchKind.entries.indexOf(kind), initialCategory) { index ->
+                val categoryGap by animateDpAsState(
+                    if (roomsMode) 16.dp else 0.dp,
+                    animationSpec = tween(220), label = "explore-category-gap")
+                Spacer(Modifier.height(categoryGap))
+                ExploreCategoryTabs(if (roomsMode) 3 else SearchKind.entries.indexOf(kind)) { index ->
+                    focusManager.clearFocus()
                     if (index == 3) onRooms() else onKind(SearchKind.entries[index])
                 }
                 AppSearchField(
-                    value = query,
-                    onValueChange = onQuery,
-                    placeholder = "Cerca ${kind.label.lowercase(italian)}",
+                    value = if (roomsMode) roomQuery else query,
+                    onValueChange = if (roomsMode) onRoomQuery else onQuery,
+                    placeholder = if (roomsMode) "Cerca un edificio o un'aula"
+                        else "Cerca ${kind.label.lowercase(italian)}",
                     modifier = Modifier.padding(top = 10.dp)
                 )
-                if (query.isNotBlank() && !loadingEntries && results != null) {
+                if (roomsMode && roomResults != null && !roomLoading) {
+                    Text("${roomResults.size} ${if (roomResults.size == 1) "edificio" else "edifici"}",
+                        modifier = Modifier.padding(top = 9.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else if (!roomsMode && query.isNotBlank() && !loadingEntries && results != null) {
                     Text(if (results.size == 40) "Primi 40 risultati · affina la ricerca"
                         else "${results.size} ${if (results.size == 1) "risultato" else "risultati"}",
                         modifier = Modifier.padding(top = 9.dp),
@@ -228,7 +251,27 @@ fun SearchScreen(
                 }
             }
         }
-        when {
+        if (roomsMode) when {
+            roomLoading -> item {
+                Text("Caricamento edifici…", style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            roomError != null -> item {
+                AppEmptyState("Aule non disponibili", roomError, action = "Riprova",
+                    onAction = onRetryRooms, icon = Icons.Outlined.MeetingRoom)
+            }
+            roomResults == null -> item { AppLoadingState() }
+            roomResults.isEmpty() -> item {
+                AppEmptyState("Nessun edificio trovato", "Prova con un'altra sede o un'altra aula.",
+                    icon = Icons.Outlined.MeetingRoom)
+            }
+            else -> items(roomResults, key = { "building:${it.code}" }) { building ->
+                RoomBuildingCard(building) {
+                    focusManager.clearFocus()
+                    onOpenBuilding(building)
+                }
+            }
+        } else when {
             loadingYears || loadingEntries -> item { AppLoadingState() }
             year == null -> item { AppEmptyState("Nessun anno disponibile",
                 "Controlla la connessione e riprova.", action = "Riprova", onAction = onRetryYears) }
@@ -269,6 +312,14 @@ private fun SearchResultCard(item: SearchItem, favorite: Boolean, subjectSaved: 
         )
         return
     }
+    if (item.kind == SearchKind.SUBJECT) {
+        SubjectCard(name = item.name, supportingText = item.code,
+            actionIcon = if (subjectSaved) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+            actionDescription = if (subjectSaved) "Modifica dove seguire ${item.name}"
+                else "Segui ${item.name}",
+            onAction = onEditSubject, onOpen = onClick)
+        return
+    }
     val palette = item.degreeType?.let { degreePalette(it) }
     Card(
         onClick = onClick, shape = RoundedCornerShape(20.dp),
@@ -297,11 +348,7 @@ private fun SearchResultCard(item: SearchItem, favorite: Boolean, subjectSaved: 
                         color = palette?.content ?: MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            if (item.kind == SearchKind.SUBJECT) IconButton(onClick = onEditSubject) {
-                Icon(if (subjectSaved) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
-                    contentDescription = if (subjectSaved) "Modifica dove seguire ${item.name}"
-                        else "Segui ${item.name}")
-            } else Icon(Icons.Outlined.ChevronRight, contentDescription = null,
+            Icon(Icons.Outlined.ChevronRight, contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -1185,7 +1232,7 @@ fun CalendarScreen(
         if (rootLessons) AppScreenHeader(
             title = "Lezioni",
             subtitle = "Il tuo orario settimanale",
-            modifier = Modifier.padding(start = 20.dp, end = 12.dp, top = 8.dp, bottom = 4.dp),
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 4.dp),
             secondaryActionIcon = Icons.Outlined.BookmarkBorder,
             secondaryActionDescription = "Apri insegnamenti preferiti",
             onSecondaryAction = onManageSubjects,
@@ -1538,7 +1585,11 @@ private fun RowScope.LessonMonthDay(
 ) {
     val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val indicatorOffset by animateDpAsState(
-        targetValue = if (selected || today) 24.dp else 17.dp,
+        targetValue = when {
+            count >= 4 && (selected || today) -> 27.dp
+            selected || today -> 24.dp
+            else -> 17.dp
+        },
         animationSpec = tween(180, easing = FastOutSlowInEasing),
         label = "lesson-day-indicator-offset"
     )
@@ -1568,19 +1619,16 @@ private fun RowScope.LessonMonthDay(
                     })
             }
         }
-        if (count > 0) Row(Modifier.align(Alignment.Center)
-            .offset { IntOffset(0, indicatorOffset.roundToPx()) },
-            horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            repeat(count.coerceAtMost(3)) {
-                Box(Modifier.size(4.dp).background(
-                    when {
-                        selected -> MaterialTheme.colorScheme.onPrimary
-                        !inCurrentMonth -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                        else -> MaterialTheme.colorScheme.primary
-                    },
-                    CircleShape))
-            }
-        }
+        CalendarItemIndicator(
+            count = count,
+            color = when {
+                selected -> MaterialTheme.colorScheme.onPrimary
+                !inCurrentMonth -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                else -> MaterialTheme.colorScheme.primary
+            },
+            modifier = Modifier.align(Alignment.Center)
+                .offset { IntOffset(0, indicatorOffset.roundToPx()) }
+        )
     }
 }
 

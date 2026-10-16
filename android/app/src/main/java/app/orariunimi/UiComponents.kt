@@ -47,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 @Composable
 fun AppSearchField(
@@ -228,7 +229,8 @@ fun AppSegmentedControl(
     options: List<String>,
     selectedIndex: Int,
     onSelected: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    icons: List<ImageVector> = emptyList()
 ) {
     if (options.isEmpty()) return
     Surface(
@@ -257,6 +259,7 @@ fun AppSegmentedControl(
                 options.forEachIndexed { index, label ->
                     AppSegmentOption(
                         label = label,
+                        icon = icons.getOrNull(index),
                         selected = index == safeIndex,
                         modifier = Modifier.weight(1f),
                         onClick = { onSelected(index) }
@@ -270,6 +273,7 @@ fun AppSegmentedControl(
 @Composable
 private fun RowScope.AppSegmentOption(
     label: String,
+    icon: ImageVector?,
     selected: Boolean,
     modifier: Modifier,
     onClick: () -> Unit
@@ -289,8 +293,31 @@ private fun RowScope.AppSegmentOption(
         ),
         contentAlignment = Alignment.Center
     ) {
-        Text(label, style = MaterialTheme.typography.labelLarge, color = contentColor,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (icon != null) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(17.dp), tint = contentColor)
+                Spacer(Modifier.width(6.dp))
+            }
+            Text(label, style = MaterialTheme.typography.labelLarge, color = contentColor,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+        }
+    }
+}
+
+@Composable
+fun CalendarItemIndicator(count: Int, color: Color, modifier: Modifier = Modifier) {
+    if (count <= 0) return
+    if (count >= 4) {
+        Surface(modifier = modifier, shape = RoundedCornerShape(6.dp),
+            color = color.copy(alpha = 0.16f)) {
+            Text(count.toString(), Modifier.padding(horizontal = 3.dp, vertical = 1.dp),
+                color = color, fontSize = 10.sp, lineHeight = 10.sp,
+                fontWeight = FontWeight.Bold)
+        }
+    } else {
+        Row(modifier, horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp)) {
+            repeat(count) { Box(Modifier.size(4.dp).background(color, CircleShape)) }
+        }
     }
 }
 

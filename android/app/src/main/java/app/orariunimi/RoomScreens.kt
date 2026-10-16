@@ -25,16 +25,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.MeetingRoom
+import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.School
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -48,7 +50,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -73,16 +74,17 @@ private val roomDate = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", roomItali
 private val roomTime = DateTimeFormatter.ofPattern("HH:mm", roomItalian)
 private val roomUpdated = DateTimeFormatter.ofPattern("d MMM, HH:mm", roomItalian)
 private val exploreLabels = listOf("Corsi", "Docenti", "Insegnamenti", "Aule")
-private val exploreWeights = listOf(0.8f, 1.0f, 1.5f, 0.7f)
+private val exploreIcons = listOf(Icons.Outlined.School, Icons.Outlined.PersonOutline,
+    Icons.AutoMirrored.Outlined.MenuBook, Icons.Outlined.MeetingRoom)
+private val exploreWeights = listOf(0.85f, 1.0f, 1.5f, 0.85f)
 private fun exploreOffset(index: Int) = exploreWeights.take(index).sum() / exploreWeights.sum()
 private fun exploreWidth(index: Int) = exploreWeights[index] / exploreWeights.sum()
 
 @Composable
-fun ExploreCategoryTabs(selectedIndex: Int, initialIndex: Int, onSelect: (Int) -> Unit) {
+fun ExploreCategoryTabs(selectedIndex: Int, onSelect: (Int) -> Unit) {
     val safeIndex = selectedIndex.coerceIn(exploreLabels.indices)
-    val safeInitial = initialIndex.coerceIn(exploreLabels.indices)
-    val indicatorOffset = remember { Animatable(exploreOffset(safeInitial)) }
-    val indicatorWidth = remember { Animatable(exploreWidth(safeInitial)) }
+    val indicatorOffset = remember { Animatable(exploreOffset(safeIndex)) }
+    val indicatorWidth = remember { Animatable(exploreWidth(safeIndex)) }
     LaunchedEffect(safeIndex) {
         coroutineScope {
             launch { indicatorOffset.animateTo(exploreOffset(safeIndex),
@@ -117,9 +119,15 @@ fun ExploreCategoryTabs(selectedIndex: Int, initialIndex: Int, onSelect: (Int) -
                             ).padding(horizontal = 2.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(label, color = content, textAlign = TextAlign.Center,
-                            fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+                        Row(verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center) {
+                            Icon(exploreIcons[index], contentDescription = null,
+                                modifier = Modifier.size(15.dp), tint = content)
+                            Spacer(Modifier.width(3.dp))
+                            Text(label, color = content, textAlign = TextAlign.Center,
+                                fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+                        }
                     }
                 }
             }
@@ -128,80 +136,32 @@ fun ExploreCategoryTabs(selectedIndex: Int, initialIndex: Int, onSelect: (Int) -
 }
 
 @Composable
-fun RoomSearchScreen(
-    query: String,
-    results: List<UnimiBuilding>?,
-    loading: Boolean,
-    error: String?,
-    onQuery: (String) -> Unit,
-    onOpenBuilding: (UnimiBuilding) -> Unit,
-    onRetry: () -> Unit,
-    onCategory: (Int) -> Unit,
-    initialCategory: Int
-) {
-    val focus = LocalFocusManager.current
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        item {
-            Column {
-                AppScreenHeader("Esplora", "Corsi, docenti, insegnamenti e aule UNIMI")
-                Spacer(Modifier.height(16.dp))
-                ExploreCategoryTabs(3, initialCategory, onCategory)
-                AppSearchField(query, onQuery, "Cerca un edificio o un'aula",
-                    modifier = Modifier.padding(top = 10.dp))
-                if (results != null && !loading) {
-                    Text(
-                        "${results.size} ${if (results.size == 1) "edificio" else "edifici"}",
-                        Modifier.padding(top = 9.dp), style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+fun RoomBuildingCard(building: UnimiBuilding, onClick: () -> Unit) {
+    Card(onClick = onClick, shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 15.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Surface(shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer) {
+                Icon(Icons.Outlined.MeetingRoom, contentDescription = null,
+                    Modifier.padding(11.dp).size(22.dp),
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer)
             }
-        }
-        when {
-            loading -> item { AppLoadingState() }
-            error != null -> item {
-                AppEmptyState("Aule non disponibili", error, action = "Riprova", onAction = onRetry,
-                    icon = Icons.Outlined.MeetingRoom)
+            Spacer(Modifier.width(13.dp))
+            Column(Modifier.weight(1f)) {
+                Text(building.name, style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold, maxLines = 2,
+                    overflow = TextOverflow.Ellipsis)
+                Text(buildString {
+                    append(building.address.ifBlank { "Indirizzo non pubblicato" })
+                    append(" · ${building.rooms.size} ")
+                    append(if (building.rooms.size == 1) "aula" else "aule")
+                }, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
-            results == null -> item { AppLoadingState() }
-            results.isEmpty() -> item {
-                AppEmptyState("Nessun edificio trovato", "Prova con un'altra sede o un'altra aula.",
-                    icon = Icons.Outlined.MeetingRoom)
-            }
-            else -> items(results, key = { it.code }) { building ->
-                Card(onClick = { focus.clearFocus(); onOpenBuilding(building) },
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 15.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Surface(shape = RoundedCornerShape(14.dp),
-                            color = MaterialTheme.colorScheme.secondaryContainer) {
-                            Icon(Icons.Outlined.MeetingRoom, contentDescription = null,
-                                Modifier.padding(11.dp).size(22.dp),
-                                tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                        }
-                        Spacer(Modifier.width(13.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(building.name, style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold, maxLines = 2,
-                                overflow = TextOverflow.Ellipsis)
-                            Text(buildString {
-                                append(building.address.ifBlank { "Indirizzo non pubblicato" })
-                                append(" · ${building.rooms.size} ")
-                                append(if (building.rooms.size == 1) "aula" else "aule")
-                            }, style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        }
-                        Icon(Icons.Outlined.ChevronRight, contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
+            Icon(Icons.Outlined.ChevronRight, contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -228,8 +188,20 @@ fun RoomBuildingScreen(
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Column {
-                Text(building.name, style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(building.name, Modifier.weight(1f),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.SemiBold, maxLines = 2,
+                        overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.width(8.dp))
+                    Surface(shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                        Text("${building.rooms.size} ${if (building.rooms.size == 1) "aula" else "aule"}",
+                            Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Outlined.Place, contentDescription = null, Modifier.size(17.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -238,24 +210,20 @@ fun RoomBuildingScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Text("${building.rooms.size} ${if (building.rooms.size == 1) "aula" else "aule"}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 5.dp))
             }
         }
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(if (shown == null) "Occupazione non disponibile"
+                Text(if (shown == null && loading) "Caricamento occupazione…"
+                    else if (shown == null) "Occupazione non disponibile"
                     else if (shown.offline) "Planning salvato sul dispositivo"
-                    else "Secondo il planning · aggiornato ${Instant.ofEpochMilli(shown.sourceUpdatedAtMillis).atZone(roomZone).format(roomUpdated)}",
+                    else "Aggiornato ${Instant.ofEpochMilli(shown.sourceUpdatedAtMillis).atZone(roomZone).format(roomUpdated)}",
                     Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 IconButton(onClick = onRefresh) {
                     Icon(Icons.Outlined.Refresh, contentDescription = "Aggiorna occupazione")
                 }
             }
-            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         }
         if (error != null && shown == null) item {
             Text(error, style = MaterialTheme.typography.bodySmall,
@@ -292,11 +260,12 @@ fun RoomBuildingScreen(
 
 @Composable
 private fun RoomTrafficLight(planning: RoomPlanning?, now: LocalDateTime) {
-    val color = when {
+    val targetColor = when {
         planning == null || planning.offline -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f)
         planning.currentEvent(now) != null -> MaterialTheme.colorScheme.error
         else -> Color(0xFF41BA83)
     }
+    val color by animateColorAsState(targetColor, label = "room-occupancy")
     Box(Modifier.size(15.dp).background(color, RoundedCornerShape(50)))
 }
 
@@ -326,14 +295,14 @@ fun RoomDetailScreen(
     ) {
         item {
             Column {
-                Text(room.building, style = MaterialTheme.typography.headlineSmall,
+                Text("Aula ${room.name}", style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Outlined.Place, contentDescription = null, Modifier.size(17.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.width(4.dp))
                     Text(buildString {
-                        append("Aula ${room.name}")
+                        append(room.building)
                         room.capacity?.let { append(" · $it posti") }
                     }, style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -363,9 +332,11 @@ fun RoomDetailScreen(
                 }
             }
         }
-        if (loading && shown != null) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
         when {
-            shown == null && loading -> item { AppLoadingState() }
+            shown == null && loading -> item {
+                Text("Caricamento planning…", style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             shown == null -> item {
                 AppEmptyState("Planning non disponibile", error ?: "Impossibile caricare questa giornata.",
                     action = "Riprova", onAction = onRefresh, icon = Icons.Outlined.MeetingRoom)

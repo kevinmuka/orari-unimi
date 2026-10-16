@@ -39,7 +39,10 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
 
     override fun onDeleted(context: Context, appWidgetIds: IntArray) {
         val editor = preferences(context).edit()
-        appWidgetIds.forEach { editor.remove(dayKey(it)) }
+        appWidgetIds.forEach {
+            editor.remove(dayKey(it))
+            editor.remove(todayKey(it))
+        }
         editor.apply()
     }
 
@@ -147,13 +150,25 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
         }
 
         private fun dayKey(appWidgetId: Int) = "selected_day_$appWidgetId"
+        private fun todayKey(appWidgetId: Int) = "last_today_$appWidgetId"
 
         private fun preferences(context: Context) =
             context.getSharedPreferences(WIDGET_PREFERENCES, Context.MODE_PRIVATE)
 
-        internal fun selectedDay(context: Context, appWidgetId: Int): LocalDate = runCatching {
-            LocalDate.parse(preferences(context).getString(dayKey(appWidgetId), null))
-        }.getOrDefault(LocalDate.now())
+        internal fun selectedDay(context: Context, appWidgetId: Int): LocalDate {
+            val today = LocalDate.now()
+            val prefs = preferences(context)
+            val stored = prefs.getString(dayKey(appWidgetId), null)
+                ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            val lastToday = prefs.getString(todayKey(appWidgetId), null)
+                ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            val selected = widgetDayForToday(stored, lastToday, today)
+            if (lastToday != today || stored != selected) {
+                prefs.edit().putString(dayKey(appWidgetId), selected.toString())
+                    .putString(todayKey(appWidgetId), today.toString()).apply()
+            }
+            return selected
+        }
 
         private fun dayPendingIntent(
             context: Context, appWidgetId: Int, action: String, actionId: Int
@@ -179,3 +194,7 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
         }
     }
 }
+
+internal fun widgetDayForToday(
+    selected: LocalDate?, lastToday: LocalDate?, today: LocalDate
+): LocalDate = if (lastToday == today) selected ?: today else today
