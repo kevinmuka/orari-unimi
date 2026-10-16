@@ -1200,7 +1200,7 @@ fun OrariApp(
     }
     val examListTitle = examCourse?.let { selected ->
         if (examOpenedFromCourseDetail && courseDetail?.course?.code == selected.code) "Appelli"
-        else if (selected.kind == SearchKind.COURSE) "Corso di laurea" else "Insegnamento"
+        else selected.name
     }
     val pageTitle = when {
         notificationDetailEntry != null -> "Dettagli variazione"
@@ -1213,9 +1213,9 @@ fun OrariApp(
         lessonMonthOpen -> "Calendario mensile"
         examCourse != null -> requireNotNull(examListTitle)
         calendar != null -> requireNotNull(calendarTitle)
-        courseDetail != null -> "Corso di laurea"
-        selectedRoom != null -> "Aula"
-        selectedBuilding != null -> "Edificio"
+        courseDetail != null -> courseDetail!!.course.name
+        selectedRoom != null -> "Aula ${selectedRoom!!.name}"
+        selectedBuilding != null -> selectedBuilding!!.name
         else -> "Orari UNIMI"
     }
     val backTitle = when {
@@ -1253,8 +1253,8 @@ fun OrariApp(
             TopAppBar(
                 title = {
                     Text(pageTitle, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        style = if (pageTitle.length > 22) MaterialTheme.typography.titleMedium
-                            else MaterialTheme.typography.titleLarge)
+                        style = if (backTitle == null) MaterialTheme.typography.titleLarge
+                            else MaterialTheme.typography.titleMedium)
                 },
                 navigationIcon = {
                     if (backTitle != null) TextButton(onClick = ::goBack,
@@ -1546,7 +1546,6 @@ fun OrariApp(
                             query = examQuery,
                             results = examResults,
                             selectedItem = selected,
-                            showSelectedName = !examOpenedFromCourseDetail,
                             selectedSubjectFromLessons = examSubject?.let { subject ->
                                 lessonExamSubjects.any { it.year == subject.year && it.code == subject.code }
                             } == true,

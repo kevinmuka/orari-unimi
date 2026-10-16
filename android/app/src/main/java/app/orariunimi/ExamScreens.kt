@@ -129,7 +129,6 @@ fun ExamsScreen(
     query: String,
     results: List<SearchItem>?,
     selectedItem: SearchItem?,
-    showSelectedName: Boolean,
     selectedSubjectFromLessons: Boolean,
     selectedSubjectManual: Boolean,
     window: ExamWindow,
@@ -166,7 +165,7 @@ fun ExamsScreen(
             }
         }
     } else {
-        ExamAppealsList(selectedItem, showSelectedName, window, appeals, updatedAtMillis, offline, errorMessage, refreshing,
+        ExamAppealsList(selectedItem, window, appeals, updatedAtMillis, offline, errorMessage, refreshing,
             savedAppeals, appealsWithNotes,
             followedFromLessons = selectedSubjectFromLessons,
             followedManually = selectedSubjectManual,
@@ -262,8 +261,7 @@ private fun ExamCoursePicker(
 
 @Composable
 private fun ExamAppealsList(
-    course: SearchItem, showCourseName: Boolean, window: ExamWindow,
-    appeals: List<ExamAppeal>?, updatedAtMillis: Long?,
+    course: SearchItem, window: ExamWindow, appeals: List<ExamAppeal>?, updatedAtMillis: Long?,
     offline: Boolean, errorMessage: String?, refreshing: Boolean, savedAppeals: List<ExamAppeal>,
     appealsWithNotes: Set<Pair<String, String>>,
     followedFromLessons: Boolean, followedManually: Boolean, onToggleFollowed: (() -> Unit)?,
@@ -301,11 +299,10 @@ private fun ExamAppealsList(
                                 fontWeight = FontWeight.Bold)
                         }
                     }
-                    if (showCourseName) Text(course.name, Modifier.padding(top = 9.dp),
+                    Text(course.name, Modifier.padding(top = 9.dp),
                         style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
-                        maxLines = 3, overflow = TextOverflow.Ellipsis)
-                    Text(course.code, Modifier.padding(top = if (showCourseName) 0.dp else 8.dp),
-                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(course.code, style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

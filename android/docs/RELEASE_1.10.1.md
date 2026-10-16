@@ -1,6 +1,6 @@
 # Android 1.10.1
 
-`versionCode 49`
+`versionCode 50`
 
 Questa versione si installa sopra la 1.10.0 mantenendo preferiti, note,
 promemoria e impostazioni.
@@ -25,13 +25,13 @@ promemoria e impostazioni.
   catalogo parzialmente non disponibile lascia visibili i risultati ricevuti
   e offre un pulsante per riprovare.
 
-## Interfaccia
+## Correzione dei titoli
 
-- I dettagli di corsi, edifici, aule e insegnamenti evitano di ripetere il
-  nome nella barra superiore e nel contenuto. La barra indica la sezione e la
-  destinazione del ritorno; il nome completo resta grande nella pagina.
-- Nella lista degli appelli aperta dal dettaglio di un corso, il nome già
-  presente accanto a Indietro non viene ripetuto una seconda volta.
+- Ripristinati i titoli e le etichette Indietro della 1.10.0 nei dettagli.
+  Il nome del corso o dell'insegnamento è sempre visibile anche nell'elenco
+  degli appelli aperto dai Preferiti o dal dettaglio di un corso.
+- Questa revisione della 1.10.1 usa `versionCode 50`, così viene riconosciuta
+  come aggiornamento anche da chi aveva già installato la prima 1.10.1.
 
 Verifiche: 54 test unitari superati, lint Android e build release riusciti.
 L'APK è firmato con lo stesso certificato della 1.10.0; versione, firma e

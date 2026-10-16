@@ -21,7 +21,7 @@ android {
         applicationId = "app.orariunimi"
         minSdk = 26
         targetSdk = 36
-        versionCode = 49
+        versionCode = 50
         versionName = "1.10.1"
     }
 

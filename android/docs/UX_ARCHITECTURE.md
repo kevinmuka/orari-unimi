@@ -86,11 +86,10 @@ Corsi per le lauree e Insegnamenti per gli insegnamenti. La ricerca degli
 appelli usa un pannello sopra la schermata principale, mantenendo visibile il
 contesto del calendario.
 
-Nei dettagli, la barra superiore usa un titolo breve per la sezione e indica
-accanto alla freccia la destinazione del ritorno. Il nome completo del corso,
-dell'edificio, dell'aula o dell'insegnamento compare grande nel contenuto una
-sola volta. Se un elenco di appelli viene aperto dal dettaglio del suo corso,
-il nome già presente nell'etichetta Indietro non viene ripetuto nell'elenco.
+Nei dettagli, la barra superiore mostra il titolo della pagina e indica accanto
+alla freccia la destinazione del ritorno. L'elenco degli appelli mostra sempre
+il nome del corso o dell'insegnamento, anche quando vi si arriva dai Preferiti
+o dal dettaglio di un corso di laurea.
 
 `DegreeCourseCard` è l'unica scheda dei corsi di laurea usata da ricerca,
 Appelli e Preferiti. Colore, icona e gerarchia del testo devono quindi evolvere
