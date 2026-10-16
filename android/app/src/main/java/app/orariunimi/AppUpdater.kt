@@ -17,10 +17,53 @@ data class AppRelease(
     val tag: String,
     val downloadUrl: String,
     val sha256: String?,
-    val versionCode: Int? = null
+    val versionCode: Int? = null,
+    val notes: String = ""
 ) {
     val updateKey: String get() = versionCode?.let { "$version:$it" } ?: version
 }
+
+data class ReleaseNotes(val version: String, val versionCode: Int?, val body: String)
+
+data class ReleaseNoteSection(val title: String, val items: List<String>)
+
+/** Extract the student-facing changes from the Markdown used for GitHub releases. */
+internal fun releaseNoteSections(body: String): List<ReleaseNoteSection> {
+    val sections = mutableListOf<ReleaseNoteSection>()
+    var title = "Novità"
+    var items = mutableListOf<String>()
+    var continuing = false
+    fun flush() {
+        if (items.isNotEmpty()) sections += ReleaseNoteSection(title, items.toList())
+        items = mutableListOf()
+    }
+    for (rawLine in body.lineSequence()) {
+        val line = rawLine.trim()
+        when {
+            line.startsWith("## ") -> {
+                flush()
+                title = plainReleaseText(line.removePrefix("## "))
+                continuing = false
+            }
+            line.startsWith("- ") -> {
+                items += plainReleaseText(line.removePrefix("- "))
+                continuing = true
+            }
+            line.isEmpty() -> continuing = false
+            continuing && items.isNotEmpty() && !line.startsWith('#') -> {
+                items[items.lastIndex] += " ${plainReleaseText(line)}"
+            }
+        }
+    }
+    flush()
+    return sections
+}
+
+private fun plainReleaseText(value: String): String = value
+    .replace(Regex("\\[([^]]+)]\\([^)]+\\)"), "$1")
+    .replace(Regex("[*_`]"), "")
+    .replace(Regex("\\s+"), " ")
+    .trim()
 
 sealed interface AppUpdateState {
     data object Idle : AppUpdateState
@@ -57,8 +100,9 @@ object AppUpdater {
         }
         val digest = asset.optString("digest").takeIf { it.startsWith("sha256:") }
             ?.removePrefix("sha256:")?.lowercase()
-        val versionCode = parseReleaseVersionCode(json.optString("body"))
-        return AppRelease(version, tag, downloadUrl, digest, versionCode)
+        val body = json.optString("body")
+        val versionCode = parseReleaseVersionCode(body)
+        return AppRelease(version, tag, downloadUrl, digest, versionCode, body.take(16_000))
     }
 
     fun isNewer(release: AppRelease, currentVersion: String, currentVersionCode: Int): Boolean =

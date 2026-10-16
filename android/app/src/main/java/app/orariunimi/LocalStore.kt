@@ -91,6 +91,27 @@ class LocalStore(context: Context) {
         get() = preferences.getString("last_update_notification_version", null)
         set(value) { preferences.edit().putString("last_update_notification_version", value).commit() }
 
+    var cachedReleaseNotes: ReleaseNotes?
+        get() = try {
+            val value = JSONObject(preferences.getString("cached_release_notes", null) ?: return null)
+            val version = value.optString("version")
+            val body = value.optString("body")
+            if (version.isBlank() || body.isBlank()) null else ReleaseNotes(
+                version, value.optInt("versionCode").takeIf { it > 0 }, body)
+        } catch (_: Exception) {
+            null
+        }
+        set(value) {
+            val editor = preferences.edit()
+            if (value == null) editor.remove("cached_release_notes")
+            else editor.putString("cached_release_notes", JSONObject().apply {
+                put("version", value.version)
+                value.versionCode?.let { put("versionCode", it) }
+                put("body", value.body)
+            }.toString())
+            editor.commit()
+        }
+
     fun notifications(): List<AppNotificationEntry> = synchronized(notificationLock) {
         readNotifications()
     }

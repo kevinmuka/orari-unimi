@@ -1,6 +1,7 @@
 package app.orariunimi
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -33,5 +34,27 @@ class AppUpdaterTest {
             "<!-- orari-unimi-version-code: 24 -->") == 24)
         assertTrue(AppUpdater.parseReleaseVersionCode("Build Android con versionCode `25`") == 25)
         assertTrue(AppUpdater.parseReleaseVersionCode("Nessun codice build") == null)
+    }
+
+    @Test
+    fun showsOnlyReaderFacingReleaseSectionsAndUnwrapsMarkdown() {
+        val body = """
+            # Android 1.10.0
+            `versionCode 47`
+
+            ## Aule
+            - In **Esplora → Aule** si vedono gli edifici e
+              i relativi spazi. Leggi [i dettagli](https://example.test/docs).
+
+            ## Calendari
+            - Il widget torna a oggi.
+
+            Verifiche: build firmata e checksum controllato.
+        """.trimIndent()
+        assertEquals(listOf(
+            ReleaseNoteSection("Aule", listOf(
+                "In Esplora → Aule si vedono gli edifici e i relativi spazi. Leggi i dettagli.")),
+            ReleaseNoteSection("Calendari", listOf("Il widget torna a oggi."))
+        ), releaseNoteSections(body))
     }
 }

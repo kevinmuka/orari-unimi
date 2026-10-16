@@ -22,7 +22,8 @@ La sezione Appelli consulta gli esami pubblicati per ogni corso di laurea e li
 raggruppa per data. Si possono vedere gli appelli di oggi, dei prossimi 30 giorni
 o tutti quelli programmati, controllare aula, docente, tipo di prova e periodo
 di iscrizione e aggiungere un appello al calendario Android. Appelli apre il
-calendario degli appelli salvati, con lista cronologica e ricerca per corso.
+calendario degli appelli salvati, con lista cronologica e ricerca per corso di
+laurea o insegnamento.
 Nei Preferiti gli insegnamenti si possono seguire per Lezioni, Appelli o entrambi,
 senza duplicare le schede. I corsi di laurea salvati stanno nello stesso tab.
 La sezione Appelli si apre anche dalla pagina di un corso. Ogni appello salvato
@@ -43,6 +44,12 @@ per completare l'aggiornamento; dopo l'installazione l'APK scaricato viene
 eliminato automaticamente dalla cache dell'app. Se una release mantiene lo
 stesso numero visibile, un `versionCode` superiore nella descrizione GitHub la
 rende comunque rilevabile come nuova build.
+La stessa risposta GitHub contiene le note della release: nelle Preferenze si
+possono espandere le principali novità prima o dopo l'installazione. Le note
+consultate vengono conservate sul dispositivo, così restano visibili anche
+senza connessione. Per farle comparire, la descrizione della release deve
+usare sezioni Markdown `##` con punti elenco `-`; il testo iniziale e le
+verifiche tecniche finali non entrano nel riepilogo in-app.
 Le notifiche sono interamente facoltative e configurabili nelle Preferenze.
 Due interruttori distinti possono segnalare le variazioni delle lezioni e
 quelle degli appelli salvati, inclusi cambi di data, ora, luogo, docente,

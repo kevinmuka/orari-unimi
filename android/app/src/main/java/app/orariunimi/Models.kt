@@ -168,6 +168,13 @@ class SearchIndex(val items: List<SearchItem>) {
 fun filterItems(items: List<SearchItem>, query: String, limit: Int = 40): List<SearchItem> =
     SearchIndex(items).search(query, limit)
 
+/** Courses first, then only teachings that can actually open an exam calendar. */
+fun examSubjectSearchIndex(items: List<SearchItem>): SearchIndex =
+    SearchIndex(items.filter { it.kind == SearchKind.SUBJECT && it.examSources.isNotEmpty() })
+
+fun searchExamCatalogs(courses: SearchIndex?, subjects: SearchIndex?, query: String): List<SearchItem> =
+    courses?.search(query, limit = 20).orEmpty() + subjects?.search(query, limit = 20).orEmpty()
+
 fun SearchItem.withFallbackTeachings(candidates: List<CourseTeachingCandidate>): SearchItem {
     if (kind != SearchKind.COURSE || coursePaths.any { it.teachings.isNotEmpty() }) return this
     val matching = candidates.filter {

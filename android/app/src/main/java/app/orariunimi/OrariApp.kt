@@ -96,6 +96,7 @@ data class ExamViewData(
     val snapshot: ExamSnapshot,
     val offline: Boolean
 )
+private data class ExamSearchMatches(val year: String, val query: String, val items: List<SearchItem>)
 
 private enum class RootTab(val index: Int, val title: String) {
     LESSONS(0, "Lezioni"),
@@ -210,6 +211,7 @@ fun OrariApp(
     var week by remember { mutableStateOf(startOfWeek(LocalDate.now())) }
     var selectedDay by remember { mutableStateOf(LocalDate.now()) }
     var updateState by remember { mutableStateOf<AppUpdateState>(AppUpdateState.Idle) }
+    var releaseNotes by remember { mutableStateOf(store.cachedReleaseNotes) }
     var pendingInstall by remember { mutableStateOf<File?>(null) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -369,25 +371,28 @@ fun OrariApp(
     LaunchedEffect(year?.code, kind, tab, exploringRooms, favoriteSection, examSearchOpen,
         subjectSelectionTarget, entriesRetry) {
         val currentYear = year ?: return@LaunchedEffect
-        val requestedKind = when {
-            subjectSelectionTarget?.year == currentYear.code -> SearchKind.SUBJECT
-            tab == RootTab.EXPLORE && !exploringRooms -> kind
-            tab == RootTab.EXAMS && examSearchOpen -> SearchKind.COURSE
-            tab == RootTab.FAVORITES && favoriteSection == FavoriteSection.SUBJECTS -> SearchKind.SUBJECT
+        val requestedKinds = when {
+            subjectSelectionTarget?.year == currentYear.code -> listOf(SearchKind.SUBJECT)
+            tab == RootTab.EXPLORE && !exploringRooms -> listOf(kind)
+            tab == RootTab.EXAMS && examSearchOpen -> listOf(SearchKind.COURSE, SearchKind.SUBJECT)
+            tab == RootTab.FAVORITES && favoriteSection == FavoriteSection.SUBJECTS -> listOf(SearchKind.SUBJECT)
             else -> return@LaunchedEffect
         }
-        if (entries.containsKey(requestedKind) || requestedKind in entriesAttempted) return@LaunchedEffect
-        try {
-            val fetched = withContext(Dispatchers.IO) { api.entries(requestedKind, currentYear.code) }
-            val index = withContext(Dispatchers.Default) { SearchIndex(fetched) }
-            entries = entries + (requestedKind to index)
-            entriesAttempted = entriesAttempted + requestedKind
-            error = null
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (cause: Exception) {
-            entriesAttempted = entriesAttempted + requestedKind
-            error = cause.message ?: "Impossibile caricare l'elenco."
+        requestedKinds.filter { it !in entries && it !in entriesAttempted }.forEach { requestedKind ->
+            launch {
+                try {
+                    val fetched = withContext(Dispatchers.IO) { api.entries(requestedKind, currentYear.code) }
+                    val index = withContext(Dispatchers.Default) { SearchIndex(fetched) }
+                    entries = entries + (requestedKind to index)
+                    entriesAttempted = entriesAttempted + requestedKind
+                    error = null
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (cause: Exception) {
+                    entriesAttempted = entriesAttempted + requestedKind
+                    if (!examSearchOpen) error = cause.message ?: "Impossibile caricare l'elenco."
+                }
+            }
         }
     }
 
@@ -506,13 +511,32 @@ fun OrariApp(
         }
     }
     val examCourseIndex = entries[SearchKind.COURSE]
-    val examResults by produceState<List<SearchItem>?>(null, examQuery, examCourseIndex) {
-        if (examQuery.isNotBlank() && examCourseIndex != null) {
-            delay(120)
-            value = withContext(Dispatchers.Default) { examCourseIndex.search(examQuery) }
-        }
-    }
     val examSubjectIndex = entries[SearchKind.SUBJECT]
+    var examSearchSubjectIndex by remember(year?.code, examSubjectIndex) {
+        mutableStateOf<SearchIndex?>(null)
+    }
+    LaunchedEffect(year?.code, examSubjectIndex) {
+        examSearchSubjectIndex = examSubjectIndex?.let { index -> withContext(Dispatchers.Default) {
+            examSubjectSearchIndex(index.items)
+        } }
+    }
+    var examSearchMatches by remember { mutableStateOf<ExamSearchMatches?>(null) }
+    LaunchedEffect(year?.code, examQuery, examCourseIndex, examSearchSubjectIndex) {
+        val selectedYear = year?.code ?: return@LaunchedEffect
+        if (examQuery.isBlank()) {
+            examSearchMatches = null
+            return@LaunchedEffect
+        }
+        if (examCourseIndex == null && examSearchSubjectIndex == null) return@LaunchedEffect
+        delay(120)
+        val found = withContext(Dispatchers.Default) {
+            searchExamCatalogs(examCourseIndex, examSearchSubjectIndex, examQuery)
+        }
+        examSearchMatches = ExamSearchMatches(selectedYear, examQuery, found)
+    }
+    val examResults = examSearchMatches?.takeIf {
+        it.year == year?.code && it.query == examQuery
+    }?.items
     val currentExamYear = year?.code.orEmpty()
     val lessonExamSubjects = remember(saved, examSubjectIndex, currentExamYear, excludedExamSubjects) {
         val byCode = examSubjectIndex?.items.orEmpty().associateBy { it.code }
@@ -551,6 +575,11 @@ fun OrariApp(
             updateState = AppUpdateState.Checking
             updateState = try {
                 val release = withContext(Dispatchers.IO) { AppUpdater.latestRelease() }
+                val latestNotes = release.notes.takeIf { it.isNotBlank() }?.let {
+                    ReleaseNotes(release.version, release.versionCode, it)
+                }
+                releaseNotes = latestNotes
+                withContext(Dispatchers.IO) { store.cachedReleaseNotes = latestNotes }
                 if (AppUpdater.isNewer(release, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)) {
                     AppUpdateState.Available(release)
                 } else AppUpdateState.UpToDate
@@ -881,11 +910,13 @@ fun OrariApp(
         examRefreshing = true
         scope.launch {
             error = null
-            val sources = subject.sources.distinctBy { it.courseCode to it.examSubjectCode }
+            val sourcesByCourse = subject.sources
+                .distinctBy { it.courseCode to it.examSubjectCode }
+                .groupBy { it.courseCode }
             val cachedParts = withContext(Dispatchers.IO) {
-                sources.mapNotNull { source ->
-                    runCatching { examApi.cachedAppeals(source.courseCode, selectedWindow) }.getOrNull()
-                        ?.let { source to it }
+                sourcesByCourse.flatMap { (courseCode, sources) ->
+                    runCatching { examApi.cachedAppeals(courseCode, selectedWindow) }.getOrNull()
+                        ?.let { snapshot -> sources.map { it to snapshot } }.orEmpty()
                 }
             }
             val cached = mergeSubjectExamSnapshots(subject, cachedParts)
@@ -895,9 +926,10 @@ fun OrariApp(
             try {
                 val refreshed = withContext(Dispatchers.IO) {
                     val failures = mutableListOf<Throwable>()
-                    val parts = sources.mapNotNull { source ->
-                        runCatching { source to examApi.refreshAppeals(source.courseCode, selectedWindow) }
+                    val parts = sourcesByCourse.flatMap { (courseCode, sources) ->
+                        runCatching { examApi.refreshAppeals(courseCode, selectedWindow) }
                             .onFailure(failures::add).getOrNull()
+                            ?.let { snapshot -> sources.map { it to snapshot } }.orEmpty()
                     }
                     if (parts.isEmpty() && failures.isNotEmpty()) throw failures.first()
                     mergeSubjectExamSnapshots(subject, parts) ?: ExamSnapshot(emptyList(), System.currentTimeMillis())
@@ -1153,6 +1185,10 @@ fun OrariApp(
     val catalogLoading = activeCatalogKind != null && (
         year == null && loadingYears || year != null &&
             entries[activeCatalogKind] == null && activeCatalogKind !in entriesAttempted)
+    val examSearchLoading = year == null && loadingYears || year != null && (
+        listOf(SearchKind.COURSE, SearchKind.SUBJECT).any {
+            entries[it] == null && it !in entriesAttempted
+        } || examSubjectIndex != null && examSearchSubjectIndex == null)
 
     val calendarTitle = calendar?.let { shown ->
         when {
@@ -1164,7 +1200,7 @@ fun OrariApp(
     }
     val examListTitle = examCourse?.let { selected ->
         if (examOpenedFromCourseDetail && courseDetail?.course?.code == selected.code) "Appelli"
-        else selected.name
+        else if (selected.kind == SearchKind.COURSE) "Corso di laurea" else "Insegnamento"
     }
     val pageTitle = when {
         notificationDetailEntry != null -> "Dettagli variazione"
@@ -1177,9 +1213,9 @@ fun OrariApp(
         lessonMonthOpen -> "Calendario mensile"
         examCourse != null -> requireNotNull(examListTitle)
         calendar != null -> requireNotNull(calendarTitle)
-        courseDetail != null -> courseDetail!!.course.name
-        selectedRoom != null -> "Aula ${selectedRoom!!.name}"
-        selectedBuilding != null -> selectedBuilding!!.name
+        courseDetail != null -> "Corso di laurea"
+        selectedRoom != null -> "Aula"
+        selectedBuilding != null -> "Edificio"
         else -> "Orari UNIMI"
     }
     val backTitle = when {
@@ -1217,8 +1253,8 @@ fun OrariApp(
             TopAppBar(
                 title = {
                     Text(pageTitle, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        style = if (backTitle == null) MaterialTheme.typography.titleLarge
-                            else MaterialTheme.typography.titleMedium)
+                        style = if (pageTitle.length > 22) MaterialTheme.typography.titleMedium
+                            else MaterialTheme.typography.titleLarge)
                 },
                 navigationIcon = {
                     if (backTitle != null) TextButton(onClick = ::goBack,
@@ -1428,6 +1464,7 @@ fun OrariApp(
                         onWeekend = ::toggleWeekend,
                         currentVersion = BuildConfig.VERSION_NAME,
                         updateState = updateState,
+                        releaseNotes = releaseNotes,
                         onCheckUpdate = ::checkForUpdate,
                         onDownloadUpdate = ::downloadUpdate,
                         onInstallUpdate = ::installUpdate,
@@ -1509,6 +1546,7 @@ fun OrariApp(
                             query = examQuery,
                             results = examResults,
                             selectedItem = selected,
+                            showSelectedName = !examOpenedFromCourseDetail,
                             selectedSubjectFromLessons = examSubject?.let { subject ->
                                 lessonExamSubjects.any { it.year == subject.year && it.code == subject.code }
                             } == true,
@@ -1769,12 +1807,21 @@ fun OrariApp(
     }
     if (examSearchOpen && examCourse == null) ExamCourseSearchSheet(
         courses = examCourseIndex?.items,
+        subjects = examSearchSubjectIndex?.items,
         query = examQuery,
         results = examResults,
-        loading = catalogLoading,
+        loading = examSearchLoading,
         onQuery = { examQuery = it },
-        onSelect = { course -> examSearchOpen = false; showExams(course) },
-        onRetry = { retryCatalog(SearchKind.COURSE) },
+        onSelect = { item ->
+            examSearchOpen = false
+            if (item.kind == SearchKind.SUBJECT) showSubjectExams(FollowedExamSubject(
+                year?.code.orEmpty(), item.code, item.name, item.examSources))
+            else showExams(item)
+        },
+        onRetry = {
+            listOf(SearchKind.COURSE, SearchKind.SUBJECT).filter { entries[it] == null }
+                .forEach(::retryCatalog)
+        },
         onDismiss = { examSearchOpen = false }
     )
     subjectSelectionTarget?.let { target ->

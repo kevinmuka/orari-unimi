@@ -38,8 +38,9 @@ giornaliera o settimanale; dal calendario si raggiunge il mese. La gestione
 della raccolta rimanda a Preferiti sia da Lezioni sia da Appelli. Appelli
 mostra gli appelli che lo studente ha salvato: calendario mensile e vista
 cronologica sono due rappresentazioni dello stesso insieme. La ricerca per
-corso di laurea si apre in un pannello sopra il calendario. Aprendo un dettaglio e tornando
-indietro si deve rientrare nel contesto di provenienza.
+corso di laurea o insegnamento con appelli si apre in un pannello sopra il
+calendario. Aprendo un dettaglio e tornando indietro si deve rientrare nel
+contesto di provenienza.
 Nel dettaglio di un corso di laurea Lezioni e Appelli sono le due azioni
 affiancate. Il salvataggio del corso resta nella barra superiore; l'agenda si
 apre dal calendario delle lezioni del corso, e Indietro torna a quel calendario.
@@ -52,11 +53,11 @@ apre dal calendario delle lezioni del corso, e Indietro torna a quel calendario.
 | Corso | percorsi e insegnamenti, calendario, agenda, appelli, salvataggio corso e insegnamenti |
 | Lezioni | orario settimanale iniziale, agenda giorno/settimana, calendario aggregato giorno/mese, accesso agli insegnamenti preferiti |
 | Calendari | giorno corrente, navigazione giorno/settimana/mese, weekend facoltativo, cache e refresh manuale |
-| Appelli | calendario degli appelli salvati, lista cronologica, ricerca per corso, oggi/30 giorni/tutti, dettagli, calendario Android, note personali, avvisi persistenti per appelli rimossi |
+| Appelli | calendario degli appelli salvati, lista cronologica, ricerca per corso o insegnamento, oggi/30 giorni/tutti, dettagli, calendario Android, note personali, avvisi persistenti per appelli rimossi |
 | Preferiti | insegnamenti usati nelle lezioni o seguiti solo per gli appelli, corsi di laurea salvati, aggiunta e rimozione |
 | Notifiche | variazioni con Prima/Dopo, prossima lezione, iscrizioni agli appelli, aggiornamenti, inbox, refresh e cancellazione con annulla |
 | Widget | agenda del giorno, navigazione tra date, ritorno a oggi al cambio di data o con un tocco, weekend coerente con le preferenze |
-| Preferenze | weekend, notifiche, anticipi dei promemoria, diagnostica discreta, controllo e installazione aggiornamenti |
+| Preferenze | weekend, notifiche, anticipi dei promemoria, diagnostica discreta, controllo e installazione aggiornamenti, novità della release espandibili |
 
 ## Componenti condivisi
 
@@ -84,6 +85,12 @@ entrambi. I pulsanti `+` di Preferiti aprono Esplora nella categoria corretta:
 Corsi per le lauree e Insegnamenti per gli insegnamenti. La ricerca degli
 appelli usa un pannello sopra la schermata principale, mantenendo visibile il
 contesto del calendario.
+
+Nei dettagli, la barra superiore usa un titolo breve per la sezione e indica
+accanto alla freccia la destinazione del ritorno. Il nome completo del corso,
+dell'edificio, dell'aula o dell'insegnamento compare grande nel contenuto una
+sola volta. Se un elenco di appelli viene aperto dal dettaglio del suo corso,
+il nome già presente nell'etichetta Indietro non viene ripetuto nell'elenco.
 
 `DegreeCourseCard` è l'unica scheda dei corsi di laurea usata da ricerca,
 Appelli e Preferiti. Colore, icona e gerarchia del testo devono quindi evolvere

@@ -104,6 +104,7 @@ import java.util.Locale
 @Composable
 fun ExamCourseSearchSheet(
     courses: List<SearchItem>?,
+    subjects: List<SearchItem>?,
     query: String,
     results: List<SearchItem>?,
     loading: Boolean,
@@ -116,7 +117,8 @@ fun ExamCourseSearchSheet(
         Column(Modifier.fillMaxWidth().fillMaxHeight(0.82f)) {
             Text("Cerca appelli", Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
                 style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-            ExamCoursePicker(courses, query, results, loading, onQuery, onSelect, onRetry)
+            ExamCoursePicker(courses, subjects, query, results, loading,
+                true, onQuery, onSelect, onRetry)
         }
     }
 }
@@ -127,6 +129,7 @@ fun ExamsScreen(
     query: String,
     results: List<SearchItem>?,
     selectedItem: SearchItem?,
+    showSelectedName: Boolean,
     selectedSubjectFromLessons: Boolean,
     selectedSubjectManual: Boolean,
     window: ExamWindow,
@@ -158,12 +161,12 @@ fun ExamsScreen(
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.surfaceContainerHigh)
             Box(Modifier.weight(1f)) {
-                ExamCoursePicker(courses, query, results, loadingCourses,
-                    onQuery, onSelectCourse, onRetryCourses)
+                ExamCoursePicker(courses, null, query, results, loadingCourses,
+                    false, onQuery, onSelectCourse, onRetryCourses)
             }
         }
     } else {
-        ExamAppealsList(selectedItem, window, appeals, updatedAtMillis, offline, errorMessage, refreshing,
+        ExamAppealsList(selectedItem, showSelectedName, window, appeals, updatedAtMillis, offline, errorMessage, refreshing,
             savedAppeals, appealsWithNotes,
             followedFromLessons = selectedSubjectFromLessons,
             followedManually = selectedSubjectManual,
@@ -177,55 +180,90 @@ fun ExamsScreen(
 
 @Composable
 private fun ExamCoursePicker(
-    courses: List<SearchItem>?, query: String,
-    results: List<SearchItem>?, loading: Boolean, onQuery: (String) -> Unit,
+    courses: List<SearchItem>?, subjects: List<SearchItem>?, query: String,
+    results: List<SearchItem>?, loading: Boolean, includeSubjects: Boolean,
+    onQuery: (String) -> Unit,
     onSelect: (SearchItem) -> Unit, onRetry: () -> Unit
 ) {
+    val courseResults = results.orEmpty().filter { it.kind == SearchKind.COURSE }
+    val subjectResults = results.orEmpty().filter { it.kind == SearchKind.SUBJECT }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 30.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            AppSearchField(query, onQuery, "Cerca corso di laurea")
+            AppSearchField(query, onQuery, "Cerca corso o insegnamento")
+        }
+        if (!loading && (courses == null || includeSubjects && subjects == null) &&
+            (courses != null || subjects != null)) item {
+            Surface(shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.errorContainer) {
+                Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("Alcuni risultati non sono disponibili.", Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer)
+                    TextButton(onClick = onRetry) { Text("Riprova") }
+                }
+            }
         }
 
         when {
-            loading && courses == null -> item { AppLoadingState() }
-            courses == null -> item {
+            loading && courses == null && subjects == null -> item { AppLoadingState() }
+            courses == null && subjects == null -> item {
                 ExamEmptyPanel("Elenco non disponibile", "Controlla la connessione e riprova.", "Riprova", onRetry)
             }
             query.isNotBlank() && results == null -> item { AppLoadingState() }
-            query.isNotBlank() && results?.isEmpty() == true -> item {
-                ExamEmptyPanel("Nessun corso trovato", "Prova con il nome o il codice del corso.")
+            query.isNotBlank() && results?.isEmpty() == true && !loading -> item {
+                ExamEmptyPanel("Nessun risultato", "Prova con il nome o il codice del corso o dell'insegnamento.")
             }
             query.isNotBlank() -> {
-                item {
+                if (results?.isNotEmpty() == true) item {
                     Text("${results.orEmpty().size} ${if (results.orEmpty().size == 1) "risultato" else "risultati"}",
                         Modifier.padding(top = 3.dp), style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                items(results.orEmpty(), key = { "result:${it.code}" }) { course ->
+                if (courseResults.isNotEmpty()) item {
+                    Text("CORSI DI LAUREA", style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                }
+                items(courseResults, key = { "course:${it.code}" }) { course ->
                     DegreeCourseCard(course,
                         favorite = false,
                         onClick = { onSelect(course) },
                         showChevron = true)
                 }
+                if (subjectResults.isNotEmpty()) item {
+                    Text("INSEGNAMENTI", Modifier.padding(top = 5.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                }
+                items(subjectResults, key = { "subject:${it.code}" }) { subject ->
+                    SubjectCard(subject.name, subject.code,
+                        actionIcon = Icons.Outlined.ChevronRight,
+                        actionDescription = "Apri gli appelli di ${subject.name}",
+                        onAction = { onSelect(subject) },
+                        onOpen = { onSelect(subject) })
+                }
+                if (loading) item { AppLoadingState() }
             }
             query.isBlank() && !loading -> item {
                 AppEmptyState(
-                    title = "Cerca un corso",
-                    message = "Scrivi il nome o il codice del corso di laurea per vedere gli appelli programmati.",
+                    title = "Cerca appelli",
+                    message = "Scrivi il nome o il codice di un corso di laurea o insegnamento.",
                     icon = Icons.Outlined.Search
                 )
             }
+            else -> item { AppLoadingState() }
         }
     }
 }
 
 @Composable
 private fun ExamAppealsList(
-    course: SearchItem, window: ExamWindow, appeals: List<ExamAppeal>?, updatedAtMillis: Long?,
+    course: SearchItem, showCourseName: Boolean, window: ExamWindow,
+    appeals: List<ExamAppeal>?, updatedAtMillis: Long?,
     offline: Boolean, errorMessage: String?, refreshing: Boolean, savedAppeals: List<ExamAppeal>,
     appealsWithNotes: Set<Pair<String, String>>,
     followedFromLessons: Boolean, followedManually: Boolean, onToggleFollowed: (() -> Unit)?,
@@ -263,10 +301,11 @@ private fun ExamAppealsList(
                                 fontWeight = FontWeight.Bold)
                         }
                     }
-                    Text(course.name, Modifier.padding(top = 9.dp),
+                    if (showCourseName) Text(course.name, Modifier.padding(top = 9.dp),
                         style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(course.code, style = MaterialTheme.typography.labelMedium,
+                        maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    Text(course.code, Modifier.padding(top = if (showCourseName) 0.dp else 8.dp),
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

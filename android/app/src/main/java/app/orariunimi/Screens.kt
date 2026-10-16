@@ -677,6 +677,7 @@ fun SettingsScreen(
     onWeekend: () -> Unit,
     currentVersion: String,
     updateState: AppUpdateState,
+    releaseNotes: ReleaseNotes?,
     onCheckUpdate: () -> Unit,
     onDownloadUpdate: (AppRelease) -> Unit,
     onInstallUpdate: (File) -> Unit,
@@ -719,6 +720,7 @@ fun SettingsScreen(
             UpdateSettingCard(
                 currentVersion = currentVersion,
                 state = updateState,
+                releaseNotes = releaseNotes,
                 onCheck = onCheckUpdate,
                 onDownload = onDownloadUpdate,
                 onInstall = onInstallUpdate
@@ -1104,10 +1106,17 @@ private fun NavigationSettingCard(
 private fun UpdateSettingCard(
     currentVersion: String,
     state: AppUpdateState,
+    releaseNotes: ReleaseNotes?,
     onCheck: () -> Unit,
     onDownload: (AppRelease) -> Unit,
     onInstall: (File) -> Unit
 ) {
+    val sections = remember(releaseNotes?.body) {
+        releaseNotes?.body?.let(::releaseNoteSections).orEmpty()
+    }
+    var notesExpanded by remember(releaseNotes?.version, releaseNotes?.versionCode) {
+        mutableStateOf(false)
+    }
     ElevatedCard(shape = RoundedCornerShape(22.dp)) {
         Column(Modifier.fillMaxWidth().padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1183,6 +1192,50 @@ private fun UpdateSettingCard(
                     Spacer(Modifier.height(5.dp))
                     Text("Tocca l'icona per riprovare.", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (sections.isNotEmpty()) {
+                Spacer(Modifier.height(14.dp))
+                Surface(onClick = { notesExpanded = !notesExpanded },
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Novità della versione ${releaseNotes?.version.orEmpty()}",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold)
+                            Text(if (notesExpanded) "Nascondi novità" else "Mostra novità",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Icon(if (notesExpanded) Icons.Outlined.KeyboardArrowUp
+                            else Icons.Outlined.KeyboardArrowDown,
+                            contentDescription = if (notesExpanded) "Chiudi novità" else "Apri novità")
+                    }
+                }
+                AnimatedVisibility(visible = notesExpanded,
+                    enter = expandVertically(tween(240)) + fadeIn(tween(180)),
+                    exit = shrinkVertically(tween(200)) + fadeOut(tween(130))) {
+                    Column(Modifier.fillMaxWidth().padding(top = 14.dp, start = 3.dp, end = 3.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        sections.forEach { section ->
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(section.title, style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold)
+                                section.items.forEach { item ->
+                                    Row(Modifier.fillMaxWidth()) {
+                                        Text("•", Modifier.padding(end = 8.dp),
+                                            color = MaterialTheme.colorScheme.primary)
+                                        Text(item, style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
