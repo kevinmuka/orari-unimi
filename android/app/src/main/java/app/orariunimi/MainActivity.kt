@@ -7,6 +7,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+
+internal class LaunchIntentState : ViewModel() {
+    var handled = false
+}
 
 class MainActivity : ComponentActivity() {
     private val openSavedRequest = mutableIntStateOf(0)
@@ -16,10 +22,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (intent.getBooleanExtra(OPEN_SAVED, false)) openSavedRequest.intValue++
-        if (intent.getBooleanExtra(OPEN_NOTIFICATIONS, false)) openNotificationsRequest.intValue++
-        openNotificationId.value = intent.getStringExtra(OPEN_NOTIFICATION_ID)
-        if (openNotificationId.value != null) openNotificationRequest.intValue++
+        // The ViewModel survives rotation, but is new after process death. A rotated Activity
+        // must not replay its old intent; a fresh process must still honor the launch intent.
+        val launchIntentState = ViewModelProvider(this)[LaunchIntentState::class.java]
+        if (!launchIntentState.handled) {
+            if (intent.getBooleanExtra(OPEN_SAVED, false)) openSavedRequest.intValue++
+            if (intent.getBooleanExtra(OPEN_NOTIFICATIONS, false)) openNotificationsRequest.intValue++
+            openNotificationId.value = intent.getStringExtra(OPEN_NOTIFICATION_ID)
+            if (openNotificationId.value != null) openNotificationRequest.intValue++
+            launchIntentState.handled = true
+        }
         enableEdgeToEdge()
         setContent {
             OrariTheme {
