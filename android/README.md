@@ -92,8 +92,8 @@ gestita automaticamente da Android.
 La struttura delle destinazioni, i componenti condivisi e le funzioni da
 preservare nei prossimi interventi sono descritti in
 [docs/UX_ARCHITECTURE.md](docs/UX_ARCHITECTURE.md).
-Le modifiche introdotte nella versione 1.10.0 sono raccolte nelle
-[note di rilascio](docs/RELEASE_1.10.0.md).
+Le correzioni introdotte nella versione 1.10.2 sono raccolte nelle
+[note di rilascio](docs/RELEASE_1.10.2.md).
 
 ## Compilazione
 
