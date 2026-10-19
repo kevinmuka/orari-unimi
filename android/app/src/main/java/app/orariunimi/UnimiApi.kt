@@ -220,7 +220,8 @@ class UnimiApi(
 
     private fun cachedSnapshot(request: ScheduleRequest, maxAgeMillis: Long): ScheduleSnapshot? {
         val entry = cache?.readEntry(request.cacheKey, maxAgeMillis) ?: return null
-        return ScheduleSnapshot(parseLessons(entry.value), entry.storedAtMillis)
+        val lessons = runCatching { parseLessons(entry.value) }.getOrNull() ?: return null
+        return ScheduleSnapshot(lessons, entry.storedAtMillis)
     }
 
     private fun loadSnapshot(request: ScheduleRequest, force: Boolean): ScheduleSnapshot {
@@ -236,32 +237,49 @@ class UnimiApi(
                 val age = (clockMillis() - existing.storedAtMillis).coerceAtLeast(0)
                 // Also coalesce concurrent forced refreshes that started before this response was saved.
                 if (existing.storedAtMillis >= startedAt || !force && age <= SCHEDULE_FRESH_MAX_AGE) {
-                    scheduleLoadObserver?.invoke(true)
-                    return@synchronized ScheduleSnapshot(parseLessons(existing.value), existing.storedAtMillis)
+                    runCatching { parseLessons(existing.value) }.getOrNull()?.let { lessons ->
+                        scheduleLoadObserver?.invoke(true)
+                        return@synchronized ScheduleSnapshot(lessons, existing.storedAtMillis)
+                    }
                 }
             }
             val response = fetch(request.path, request.encoded, get = false)
+            val lessons = parseLessons(response)
             val storedAt = cache?.write(request.cacheKey, response) ?: clockMillis()
             scheduleLoadObserver?.invoke(false)
-            ScheduleSnapshot(parseLessons(response), storedAt)
+            ScheduleSnapshot(lessons, storedAt)
         }
     }
 
     private fun parseLessons(body: String): List<Lesson> {
         val response = JSONObject(body)
-        val cells = response.optJSONArray("celle") ?: JSONArray()
+        val cells = response.optJSONArray("celle")
+            ?: throw IllegalStateException("La risposta degli orari non contiene le lezioni.")
         return (0 until cells.length()).mapNotNull { index ->
-            val cell = cells.optJSONObject(index) ?: return@mapNotNull null
-            val subjectCode = cell.optString("codice_insegnamento")
-            if (subjectCode.isBlank()) return@mapNotNull null
+            val cell = cells.optJSONObject(index)
+                ?: throw IllegalStateException("La risposta degli orari contiene una lezione non valida.")
+            val subjectCode = cell.optString("codice_insegnamento").trim()
+            if (subjectCode.isBlank()) {
+                // AgendaWeb also includes closures and holidays without a teaching code.
+                if (cell.optString("nome_insegnamento").isNotBlank()) {
+                    throw IllegalStateException("La risposta degli orari contiene un insegnamento senza codice.")
+                }
+                return@mapNotNull null
+            }
+            val subject = repair(cell.optString("nome_insegnamento")).trim()
+            val start = cell.optString("ora_inizio").trim()
+            val end = cell.optString("ora_fine").trim()
+            if (subject.isBlank() || start.isBlank() || end.isBlank()) {
+                throw IllegalStateException("La risposta degli orari contiene una lezione incompleta.")
+            }
             val date = LocalDate.parse(cell.getString("data"), dateFormat)
             Lesson(
                 id = cell.optString("id"),
                 subjectCode = subjectCode,
-                subject = repair(cell.optString("nome_insegnamento")),
+                subject = subject,
                 date = date,
-                start = cell.optString("ora_inizio"),
-                end = cell.optString("ora_fine"),
+                start = start,
+                end = end,
                 room = repair(cell.optString("aula")),
                 teacher = repair(cell.optString("docente")),
                 type = repair(cell.optString("tipo")),
@@ -275,18 +293,31 @@ class UnimiApi(
     private fun combo(year: String, page: String?, variable: String): Any {
         val fields = mutableListOf("sw" to "ec_", "aa" to year)
         if (page != null) fields += "page" to page
-        val json = extractAgendaVariable(request("combo.php", fields, get = true), variable)
-        return if (json.startsWith('[')) JSONArray(json) else JSONObject(json)
+        return request("combo.php", fields, get = true) { body ->
+            val json = extractAgendaVariable(body, variable)
+            if (page == null) JSONObject(json) else JSONArray(json)
+        }
     }
 
-    private fun request(path: String, fields: List<Pair<String, String>>, get: Boolean = false): String {
+    private fun <T> request(
+        path: String,
+        fields: List<Pair<String, String>>,
+        get: Boolean = false,
+        parse: (String) -> T
+    ): T {
         val encoded = encode(fields)
         val cacheKey = cacheKey(path, encoded, get)
-        cache?.read(cacheKey, CATALOG_MAX_AGE)?.let { return it }
+        cache?.read(cacheKey, CATALOG_MAX_AGE)?.let { body ->
+            runCatching { parse(body) }.getOrNull()?.let { return it }
+        }
         return try {
-            fetch(path, encoded, get).also { cache?.write(cacheKey, it) }
+            val response = fetch(path, encoded, get)
+            parse(response).also { cache?.write(cacheKey, response) }
         } catch (cause: Exception) {
-            cache?.read(cacheKey, CATALOG_STALE_MAX_AGE) ?: throw cause
+            cache?.read(cacheKey, CATALOG_STALE_MAX_AGE)?.let { body ->
+                runCatching { parse(body) }.getOrNull()?.let { return it }
+            }
+            throw cause
         }
     }
 

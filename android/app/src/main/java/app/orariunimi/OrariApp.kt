@@ -931,7 +931,9 @@ fun OrariApp(
                             .onFailure(failures::add).getOrNull()
                             ?.let { snapshot -> sources.map { it to snapshot } }.orEmpty()
                     }
-                    if (parts.isEmpty() && failures.isNotEmpty()) throw failures.first()
+                    // A subject may belong to several courses. One failed source must not
+                    // make its exams silently disappear from the combined result.
+                    if (failures.isNotEmpty()) throw failures.first()
                     mergeSubjectExamSnapshots(subject, parts) ?: ExamSnapshot(emptyList(), System.currentTimeMillis())
                 }
                 val savedChanged = withContext(Dispatchers.IO) {

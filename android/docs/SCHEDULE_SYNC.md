@@ -75,13 +75,14 @@ client non deve quindi descrivere i 15 minuti come una scadenza garantita.
 1. Il chiamante richiede un calendario singolo o l'insieme degli insegnamenti
    salvati.
 2. Una richiesta automatica cerca una risposta con età massima di due minuti.
-3. In caso di cache valida, la risposta viene analizzata e restituita senza
-   rete.
+3. In caso di cache recente e strutturalmente valida, la risposta viene
+   analizzata e restituita senza rete. Un file malformato non evita il recupero.
 4. In caso contrario viene acquisito il lock associato alla chiave HTTP.
 5. Dopo il lock la cache viene controllata nuovamente: un altro chiamante può
    aver terminato il recupero mentre questo era in attesa.
-6. Solo il primo chiamante interroga `grid_call.php`; gli altri riutilizzano il
-   file appena scritto.
+6. Solo il primo chiamante interroga `grid_call.php`; la risposta viene
+   analizzata prima di sostituire la cache. Gli altri riutilizzano il file
+   soltanto se è valido.
 7. Parsing e accesso alla rete vengono eseguiti fuori dal thread UI.
 
 I lock sono condivisi da tutte le istanze di `UnimiApi` nello stesso processo.
@@ -134,7 +135,8 @@ protezioni:
 - errori HTTP, timeout e parsing non modificano la baseline;
 - una fotografia interamente vuota viene rinviata una volta se prima esistevano
   lezioni future;
-- una lezione scomparsa deve mancare in due fotografie consecutive;
+- una lezione scomparsa deve mancare in due fotografie consecutive provenienti
+  da recuperi distinti: rileggere la stessa cache non conferma un'assenza;
 - annullamenti espliciti e modifiche di data, ora, aula, docente o note vengono
   rilevati alla prima fotografia valida;
 - gli identificativi stabili impediscono di archiviare due volte la stessa
@@ -179,9 +181,17 @@ docente, intervallo alfabetico, tipo di prova, tipo di appello, apertura e
 chiusura delle iscrizioni, nome dell'insegnamento, nome del corso di laurea e
 codici dell'insegnamento. Una risposta complessivamente vuota viene rinviata
 una volta; un singolo appello scomparso deve risultare assente in due fotografie
-valide consecutive. Se il portale sostituisce anche l'identificativo, il client
+valide consecutive provenienti da recuperi distinti. Il worker usa l'istante
+più vecchio tra le sorgenti del ciclo per evitare conferme basate su una cache
+riutilizzata. Se il portale sostituisce anche l'identificativo, il client
 non tenta un'associazione incerta: dopo le conferme segnala che il vecchio
 appello non è più disponibile.
+
+Una risposta `404` senza precedente copia valida resta consultabile come elenco
+vuoto nella ricerca, per coerenza con il portale. Se c'è una copia valida,
+l'interfaccia conserva quella e segnala che l'aggiornamento non è riuscito.
+Il `404` non viene salvato in cache né accettato dal worker come conferma della
+rimozione di un appello: il controllo viene ritentato.
 
 Dopo la conferma della scomparsa, l'appello viene eliminato dall'elenco attivo,
 insieme alla nota, e i suoi lavori di iscrizione vengono cancellati. Una copia
@@ -254,7 +264,17 @@ un promemoria già programmato.
 
 ## Errori e comportamento offline
 
-- La cache viene scritta soltanto dopo una risposta HTTP valida e completa.
+- La cache di orari, appelli e cataloghi viene scritta soltanto dopo che la
+  risposta è stata analizzata. Per gli orari sono obbligatori l'array `celle`
+  e, per ogni lezione, codice, titolo, data e orari. Le celle non didattiche
+  senza codice restano ammesse. Per gli appelli sono obbligatori l'array dei
+  gruppi, `appelli` in ogni gruppo e una data valida per ogni appello. Un
+  elenco vuoto nella forma prevista (`{"celle":[]}` o `[]`) resta valido.
+- Un file cache malformato non viene usato come fotografia fresca o offline;
+  una risposta nuova malformata non sostituisce l'ultima copia valida.
+- Le baseline conservano l'istante della risposta esaminata. Quando una
+  versione precedente non lo contiene, i vecchi contatori delle assenze
+  vengono azzerati senza eliminare lezioni o appelli salvati.
 - Un errore di rete non aggiorna l'ora del file e non lo rende artificialmente
   recente.
 - L'interfaccia continua a mostrare la copia offline disponibile.
@@ -273,14 +293,17 @@ un promemoria già programmato.
 - riutilizzo automatico entro due minuti;
 - nuovo recupero dopo la scadenza;
 - una sola chiamata per due refresh forzati concorrenti.
+- rifiuto di risposte incomplete senza sovrascrivere una cache valida e
+  mantenimento del catalogo precedente se il nuovo payload è malformato.
 
 `NotificationEngineTest.kt` copre le protezioni contro falsi positivi delle
 lezioni, la firma della selezione e il calcolo dell'istante del promemoria.
 `ExamNotificationEngineTest.kt` verifica tutti i campi osservati, le due
 conferme per una scomparsa, il mancato avviso per una nuova selezione e la
-deduplicazione dei corsi. `ExamApiTest.kt` verifica anche che la cache di due
-minuti eviti una seconda richiesta e che, alla scadenza, la rete venga
-interrogata di nuovo. `NotificationWorkflowIntegrationTest.kt` attraversa il
+deduplicazione dei corsi. `ExamApiTest.kt` verifica anche la cache di due
+minuti, il rifiuto di risposte incomplete, il `404` non utilizzabile per
+confermare una rimozione e la distinzione tra nuova risposta e stessa cache.
+`NotificationWorkflowIntegrationTest.kt` attraversa il
 flusso completo di conferma della rimozione e cancellazione dei promemoria,
 verifica la riprogrammazione dopo una nuova scadenza e l'indipendenza dei due
 toggle. Prima di una release vanno eseguiti almeno:
@@ -336,6 +359,10 @@ Quando inizierà quel lavoro:
 - Il refresh manuale produce un controllo esplicito e mostra l'ora reale della
   fotografia restituita.
 - Una risposta parziale non sostituisce una fotografia completa.
+- Due letture dello stesso file cache non costituiscono due conferme di una
+  scomparsa. Una risposta formalmente valida ma semanticamente parziale non è
+  sempre distinguibile da una cancellazione reale: resta necessaria la
+  conferma in recuperi distinti, anche con un futuro backend.
 - Le selezioni personali restano sul dispositivo; al server basta conoscere
   identificativi anonimi dei calendari osservati.
 - Il widget continua a leggere dati locali già validati.

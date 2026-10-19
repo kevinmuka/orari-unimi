@@ -10,7 +10,8 @@ data class NotificationBaseline(
     val selectionKey: String = "",
     val lessons: List<Lesson>,
     val missingCounts: Map<String, Int> = emptyMap(),
-    val consecutiveEmptyResponses: Int = 0
+    val consecutiveEmptyResponses: Int = 0,
+    val sourceUpdatedAtMillis: Long = 0
 )
 
 class NotificationBaselineStore(context: Context) {
@@ -23,11 +24,16 @@ class NotificationBaselineStore(context: Context) {
             val root = JSONObject(file.readText())
             val lessons = root.optJSONArray("lessons") ?: JSONArray()
             val missing = root.optJSONObject("missingCounts") ?: JSONObject()
+            val hasSourceTimestamp = root.has("sourceUpdatedAtMillis")
             NotificationBaseline(
                 selectionKey = root.optString("selectionKey"),
                 lessons = (0 until lessons.length()).mapNotNull { lessons.optJSONObject(it)?.toLesson() },
-                missingCounts = missing.keys().asSequence().associateWith { missing.optInt(it) },
-                consecutiveEmptyResponses = root.optInt("consecutiveEmptyResponses", 0)
+                // An old counter may have been advanced twice by the same cached response.
+                missingCounts = if (hasSourceTimestamp) missing.keys().asSequence()
+                    .associateWith { missing.optInt(it) } else emptyMap(),
+                consecutiveEmptyResponses = if (hasSourceTimestamp)
+                    root.optInt("consecutiveEmptyResponses", 0) else 0,
+                sourceUpdatedAtMillis = root.optLong("sourceUpdatedAtMillis", 0)
             )
         }.getOrNull()
     }
@@ -41,6 +47,7 @@ class NotificationBaselineStore(context: Context) {
             .put("lessons", lessons)
             .put("missingCounts", missing)
             .put("consecutiveEmptyResponses", baseline.consecutiveEmptyResponses)
+            .put("sourceUpdatedAtMillis", baseline.sourceUpdatedAtMillis)
         val temporary = File(directory, "schedule-baseline.tmp")
         temporary.writeText(root.toString())
         if (!temporary.renameTo(file)) {

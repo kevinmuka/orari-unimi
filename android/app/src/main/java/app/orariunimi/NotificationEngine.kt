@@ -3,6 +3,9 @@ package app.orariunimi
 import java.security.MessageDigest
 import java.time.LocalDate
 
+internal fun isNewSourceSnapshot(previousAtMillis: Long, currentAtMillis: Long): Boolean =
+    previousAtMillis != currentAtMillis
+
 data class NotificationDraft(
     val id: String,
     val title: String,

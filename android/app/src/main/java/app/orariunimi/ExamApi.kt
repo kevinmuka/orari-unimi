@@ -65,7 +65,8 @@ class ExamApi(
     private val baseUrl: String = "https://work.unimi.it/foProssimiEsami/json/",
     private val cache: ResponseCache? = null,
     private val clockMillis: () -> Long = System::currentTimeMillis,
-    private val transport: ((courseCode: String, window: ExamWindow) -> String)? = null,
+    // A null transport result represents the same uncertain 404 as the HTTP transport.
+    private val transport: ((courseCode: String, window: ExamWindow) -> String?)? = null,
     private val loadObserver: ((cacheHit: Boolean) -> Unit)? = null
 ) {
     private companion object {
@@ -76,7 +77,8 @@ class ExamApi(
 
     fun cachedAppeals(courseCode: String, window: ExamWindow): ExamSnapshot? {
         val entry = cache?.readEntry(cacheKey(courseCode, window), OFFLINE_MAX_AGE) ?: return null
-        return ExamSnapshot(parseExamAppeals(entry.value, courseCode), entry.storedAtMillis)
+        val appeals = runCatching { parseExamAppeals(entry.value, courseCode) }.getOrNull() ?: return null
+        return ExamSnapshot(appeals, entry.storedAtMillis)
     }
 
     fun refreshAppeals(courseCode: String, window: ExamWindow): ExamSnapshot {
@@ -86,12 +88,26 @@ class ExamApi(
     fun refreshAppealsIfStale(courseCode: String, window: ExamWindow): ExamSnapshot =
         loadAppeals(courseCode, window, force = false)
 
-    private fun loadAppeals(courseCode: String, window: ExamWindow, force: Boolean): ExamSnapshot {
+    /** A 404 may mean no exams in the UI, but cannot confirm removal of a saved appeal. */
+    fun refreshPublishedAppealsIfStale(courseCode: String, window: ExamWindow): ExamSnapshot =
+        loadAppeals(courseCode, window, force = false, requirePublishedResponse = true)
+
+    fun refreshPublishedAppeals(courseCode: String, window: ExamWindow): ExamSnapshot =
+        loadAppeals(courseCode, window, force = true, requirePublishedResponse = true)
+
+    private fun loadAppeals(
+        courseCode: String,
+        window: ExamWindow,
+        force: Boolean,
+        requirePublishedResponse: Boolean = false
+    ): ExamSnapshot {
         val key = cacheKey(courseCode, window)
         val startedAt = clockMillis()
         if (!force) cache?.readEntry(key, FRESH_MAX_AGE)?.let { entry ->
-            loadObserver?.invoke(true)
-            return ExamSnapshot(parseExamAppeals(entry.value, courseCode), entry.storedAtMillis)
+            runCatching { parseExamAppeals(entry.value, courseCode) }.getOrNull()?.let { appeals ->
+                loadObserver?.invoke(true)
+                return ExamSnapshot(appeals, entry.storedAtMillis)
+            }
         }
         val lock = requestLocks.computeIfAbsent(key) { Any() }
         return synchronized(lock) {
@@ -99,22 +115,31 @@ class ExamApi(
             if (existing != null) {
                 val age = (clockMillis() - existing.storedAtMillis).coerceAtLeast(0)
                 if (existing.storedAtMillis >= startedAt || !force && age <= FRESH_MAX_AGE) {
-                    loadObserver?.invoke(true)
-                    return@synchronized ExamSnapshot(
-                        parseExamAppeals(existing.value, courseCode), existing.storedAtMillis)
+                    runCatching { parseExamAppeals(existing.value, courseCode) }.getOrNull()?.let { appeals ->
+                        loadObserver?.invoke(true)
+                        return@synchronized ExamSnapshot(appeals, existing.storedAtMillis)
+                    }
                 }
             }
             val response = fetch(courseCode, window)
+            if (response == null) {
+                loadObserver?.invoke(false)
+                if (requirePublishedResponse || cachedAppeals(courseCode, window) != null) {
+                    throw IllegalStateException("Il servizio appelli UNIMI ha risposto 404: impossibile verificare gli appelli.")
+                }
+                return@synchronized ExamSnapshot(emptyList(), clockMillis())
+            }
+            val appeals = parseExamAppeals(response, courseCode)
             val storedAt = cache?.write(key, response) ?: clockMillis()
             loadObserver?.invoke(false)
-            ExamSnapshot(parseExamAppeals(response, courseCode), storedAt)
+            ExamSnapshot(appeals, storedAt)
         }
     }
 
     private fun cacheKey(courseCode: String, window: ExamWindow): String =
         "GET|$baseUrl${courseCode.trim().uppercase()}/${window.suffix.orEmpty()}"
 
-    private fun fetch(courseCode: String, window: ExamWindow): String {
+    private fun fetch(courseCode: String, window: ExamWindow): String? {
         require(courseCode.matches(Regex("[A-Za-z0-9]+"))) { "Codice del corso non valido." }
         transport?.let { return it(courseCode, window) }
         val path = buildString {
@@ -129,7 +154,7 @@ class ExamApi(
             connection.setRequestProperty("User-Agent", "orari-unimi-android/1")
             connection.setRequestProperty("Accept", "application/json")
             connection.setRequestProperty("Cache-Control", "no-cache")
-            if (connection.responseCode == HttpURLConnection.HTTP_NOT_FOUND) return "[]"
+            if (connection.responseCode == HttpURLConnection.HTTP_NOT_FOUND) return null
             if (connection.responseCode !in 200..299) {
                 throw IllegalStateException("Il servizio appelli UNIMI ha risposto ${connection.responseCode}.")
             }
@@ -156,15 +181,21 @@ internal fun parseExamAppeals(body: String, courseCode: String): List<ExamAppeal
     val dateFormat = DateTimeFormatter.ofPattern("dd/MM/yyyy")
     val groups = JSONArray(body)
     return (0 until groups.length()).flatMap { groupIndex ->
-        val group = groups.optJSONObject(groupIndex) ?: return@flatMap emptyList()
+        val group = groups.optJSONObject(groupIndex)
+            ?: throw IllegalStateException("La risposta degli appelli contiene un insegnamento non valido.")
         val subjectCode = group.optString("codIns").trim()
         val portalCode = group.optString("codW4").trim()
         val subjectName = group.optString("descrIns").trim()
-        val sessions = group.optJSONArray("appelli") ?: JSONArray()
-        (0 until sessions.length()).mapNotNull { sessionIndex ->
-            val session = sessions.optJSONObject(sessionIndex) ?: return@mapNotNull null
-            val date = runCatching { LocalDate.parse(session.optString("dataStr"), dateFormat) }.getOrNull()
-                ?: return@mapNotNull null
+        val sessions = group.optJSONArray("appelli")
+            ?: throw IllegalStateException("La risposta degli appelli non contiene l'elenco delle date.")
+        if (sessions.length() > 0 &&
+            ((subjectCode.isBlank() && portalCode.isBlank()) || subjectName.isBlank())) {
+            throw IllegalStateException("La risposta degli appelli contiene un insegnamento incompleto.")
+        }
+        (0 until sessions.length()).map { sessionIndex ->
+            val session = sessions.optJSONObject(sessionIndex)
+                ?: throw IllegalStateException("La risposta degli appelli contiene una data non valida.")
+            val date = LocalDate.parse(session.getString("dataStr"), dateFormat)
             val teacher = session.optJSONObject("docente")?.let { docente ->
                 listOf(docente.optString("cognome").trim(), docente.optString("nome").trim())
                     .filter { it.isNotBlank() }.joinToString(" ")
@@ -178,7 +209,7 @@ internal fun parseExamAppeals(body: String, courseCode: String): List<ExamAppeal
                 courseName = session.optString("descrCor").trim(),
                 subjectCode = subjectCode,
                 subjectPortalCode = portalCode,
-                subjectName = subjectName.ifBlank { "Insegnamento" },
+                subjectName = subjectName,
                 date = date,
                 time = session.optString("ora").trim(),
                 location = session.optString("luogo").trim(),
@@ -188,9 +219,9 @@ internal fun parseExamAppeals(body: String, courseCode: String): List<ExamAppeal
                 testType = session.optString("prova").trim(),
                 appealType = session.optString("tipoAppello").trim(),
                 registrationOpen = session.optString("aperturaStr").takeIf { it.isNotBlank() }
-                    ?.let { runCatching { LocalDate.parse(it, dateFormat) }.getOrNull() },
+                    ?.let { LocalDate.parse(it, dateFormat) },
                 registrationClose = session.optString("chiusuraStr").takeIf { it.isNotBlank() }
-                    ?.let { runCatching { LocalDate.parse(it, dateFormat) }.getOrNull() }
+                    ?.let { LocalDate.parse(it, dateFormat) }
             )
         }
     }.distinctBy { it.id }.sortedWith(

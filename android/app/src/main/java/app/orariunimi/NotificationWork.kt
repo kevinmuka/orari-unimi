@@ -306,7 +306,8 @@ class ScheduleNotificationWorker(context: Context, parameters: WorkerParameters)
         val now = LocalDateTime.now()
         if (NotificationEngine.lessonSelectionKey(store.saved()) != selectionKey) return Result.success()
         val changesFound = if (preferences.lessonChanges) processChanges(
-            store, baselineStore, snapshot.lessons, selectionKey, now.toLocalDate(), allowSystemNotification)
+            store, baselineStore, snapshot.lessons, snapshot.updatedAtMillis, selectionKey,
+            now.toLocalDate(), allowSystemNotification)
         else 0
         if (preferences.lessonReminders) processReminder(
             snapshot.lessons, now, preferences.reminderMinutes)
@@ -321,6 +322,7 @@ class ScheduleNotificationWorker(context: Context, parameters: WorkerParameters)
         store: LocalStore,
         baselineStore: NotificationBaselineStore,
         current: List<Lesson>,
+        sourceUpdatedAtMillis: Long,
         selectionKey: String,
         today: LocalDate,
         allowSystemNotification: Boolean
@@ -328,16 +330,19 @@ class ScheduleNotificationWorker(context: Context, parameters: WorkerParameters)
         val future = current.filter { !it.date.isBefore(today) }
         val baseline = baselineStore.read()
         if (baseline == null || baseline.selectionKey != selectionKey) {
-            baselineStore.write(NotificationBaseline(selectionKey, future))
+            baselineStore.write(NotificationBaseline(selectionKey, future,
+                sourceUpdatedAtMillis = sourceUpdatedAtMillis))
             return 0
         }
+        if (!isNewSourceSnapshot(baseline.sourceUpdatedAtMillis, sourceUpdatedAtMillis)) return 0
 
         val oldFuture = baseline.lessons.filter { !it.date.isBefore(today) }
         if (NotificationEngine.shouldDeferEmptySnapshot(
                 oldFuture, future, baseline.consecutiveEmptyResponses, today)) {
             baselineStore.write(baseline.copy(
                 lessons = oldFuture,
-                consecutiveEmptyResponses = baseline.consecutiveEmptyResponses + 1
+                consecutiveEmptyResponses = baseline.consecutiveEmptyResponses + 1,
+                sourceUpdatedAtMillis = sourceUpdatedAtMillis
             ))
             return 0
         }
@@ -346,7 +351,8 @@ class ScheduleNotificationWorker(context: Context, parameters: WorkerParameters)
                 maxOf(1, baseline.missingCounts.getOrDefault(NotificationEngine.lessonIdentity(it), 0)) }
         } else baseline.missingCounts
         val evaluation = NotificationEngine.evaluate(oldFuture, future, priorMissing, today)
-        baselineStore.write(NotificationBaseline(selectionKey, evaluation.lessons, evaluation.missingCounts, 0))
+        baselineStore.write(NotificationBaseline(selectionKey, evaluation.lessons, evaluation.missingCounts,
+            consecutiveEmptyResponses = 0, sourceUpdatedAtMillis = sourceUpdatedAtMillis))
 
         val added = evaluation.drafts.map { draft ->
             AppNotificationEntry(draft.id, AppNotificationType.LESSON_CHANGE, draft.title,
@@ -416,11 +422,11 @@ class ExamNotificationWorker(context: Context, parameters: WorkerParameters) : W
         val api = ExamApi(
             cache = ResponseCache(File(applicationContext.cacheDir, "orari-responses")),
             loadObserver = { cacheHit -> if (cacheHit) cacheHits++ else networkRequests++ })
-        val published = try {
-            courseCodes.flatMap { courseCode ->
-                val snapshot = if (forceRefresh) api.refreshAppeals(courseCode, ExamWindow.ALL)
-                    else api.refreshAppealsIfStale(courseCode, ExamWindow.ALL)
-                snapshot.appeals
+        val snapshots = try {
+            courseCodes.map { courseCode ->
+                val snapshot = if (forceRefresh) api.refreshPublishedAppeals(courseCode, ExamWindow.ALL)
+                    else api.refreshPublishedAppealsIfStale(courseCode, ExamWindow.ALL)
+                snapshot
             }
         } catch (_: Exception) {
             diagnostics.recordFailure(SyncDiagnosticKind.EXAMS, courseCodes.size,
@@ -431,8 +437,10 @@ class ExamNotificationWorker(context: Context, parameters: WorkerParameters) : W
             return Result.success()
         }
 
+        val published = snapshots.flatMap { it.appeals }
         val current = published.filter { ExamNotificationEngine.identity(it) in savedKeys }
-        val changesFound = processChanges(store, baselineStore, saved, current, selectionKey,
+        val changesFound = processChanges(store, baselineStore, saved, current,
+            snapshots.minOf { it.updatedAtMillis }, selectionKey,
             allowSystemNotification, preferences.examChanges)
         NotificationScheduler.reconcileExamRegistrationReminders(applicationContext)
         diagnostics.recordSuccess(SyncDiagnosticKind.EXAMS, courseCodes.size,
@@ -445,20 +453,24 @@ class ExamNotificationWorker(context: Context, parameters: WorkerParameters) : W
         baselineStore: ExamNotificationBaselineStore,
         saved: List<ExamAppeal>,
         current: List<ExamAppeal>,
+        sourceUpdatedAtMillis: Long,
         selectionKey: String,
         allowSystemNotification: Boolean,
         notificationsEnabled: Boolean
     ): Int {
         val baseline = baselineStore.read()
         if (baseline == null || baseline.selectionKey != selectionKey) {
-            baselineStore.write(ExamNotificationBaseline(selectionKey, current.ifEmpty { saved }))
+            baselineStore.write(ExamNotificationBaseline(selectionKey, current.ifEmpty { saved },
+                sourceUpdatedAtMillis = sourceUpdatedAtMillis))
             store.refreshSavedExamAppeals(current)
             return 0
         }
+        if (!isNewSourceSnapshot(baseline.sourceUpdatedAtMillis, sourceUpdatedAtMillis)) return 0
         if (ExamNotificationEngine.shouldDeferEmptySnapshot(
                 baseline.appeals, current, baseline.consecutiveEmptyResponses)) {
             baselineStore.write(baseline.copy(
-                consecutiveEmptyResponses = baseline.consecutiveEmptyResponses + 1))
+                consecutiveEmptyResponses = baseline.consecutiveEmptyResponses + 1,
+                sourceUpdatedAtMillis = sourceUpdatedAtMillis))
             return 0
         }
         val priorMissing = if (current.isEmpty() && baseline.appeals.isNotEmpty()) {
@@ -469,7 +481,8 @@ class ExamNotificationWorker(context: Context, parameters: WorkerParameters) : W
         } else baseline.missingCounts
         val evaluation = ExamNotificationEngine.evaluate(baseline.appeals, current, priorMissing)
         baselineStore.write(ExamNotificationBaseline(
-            selectionKey, evaluation.appeals, evaluation.missingCounts, 0))
+            selectionKey, evaluation.appeals, evaluation.missingCounts,
+            consecutiveEmptyResponses = 0, sourceUpdatedAtMillis = sourceUpdatedAtMillis))
         store.refreshSavedExamAppeals(current)
         if (evaluation.removedAppeals.isNotEmpty()) {
             store.addRemovedExamNotices(evaluation.removedAppeals, System.currentTimeMillis())

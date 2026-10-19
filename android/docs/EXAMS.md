@@ -61,7 +61,8 @@ fotografia di riferimento.
 Per gli appelli già presenti nella fotografia vengono rilevati cambi di data,
 ora, luogo, docente, fascia alfabetica, tipo di prova, tipo di appello, apertura
 o chiusura delle iscrizioni, descrizioni e codici dell'insegnamento. Un appello
-scomparso deve mancare in due fotografie valide consecutive prima di essere
+scomparso deve mancare in due fotografie valide consecutive ottenute da
+recuperi distinti, non da due letture della stessa cache, prima di essere
 segnalato. Errori o risultati parziali non sostituiscono la fotografia
 precedente. L'implementazione completa, compresi frequenza, deduplicazione e
 futura migrazione a un backend, è descritta in
@@ -105,8 +106,10 @@ che UNIMI la renda disponibile nel servizio.
 - Le richieste sono per corso di laurea, non per singolo insegnamento. Il filtro
   per insegnamento viene quindi applicato ai risultati del corso.
 - Non è disponibile un parametro per l'anno accademico o per gli appelli storici.
-- Una risposta `404` per un codice selezionato viene interpretata come elenco
-  vuoto, come fa la pagina ufficiale.
+- Una risposta `404` senza cache valida viene mostrata come elenco vuoto nella
+  ricerca, come fa la pagina ufficiale. Se c'è una copia precedente, questa
+  rimane visibile con l'avviso di aggiornamento non riuscito. Il `404` non viene
+  memorizzato né usato per confermare la scomparsa di un appello salvato.
 - Il servizio non espone un collegamento autenticato per iscriversi all'appello:
   l'iscrizione continua a essere effettuata tramite Unimia.
 - Non esiste un campo esplicito per un appello annullato. Il sistema di
