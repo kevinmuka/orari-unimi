@@ -79,6 +79,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
@@ -477,8 +478,10 @@ fun ExamPlannerScreen(
     onDismissRemoved: (RemovedExamNotice) -> Unit
 ) {
     val today = LocalDate.now()
-    var month by remember { mutableStateOf(YearMonth.from(today)) }
-    var selectedDay by remember { mutableStateOf(today) }
+    var month by rememberSaveable(stateSaver = YearMonthSaver) {
+        mutableStateOf(YearMonth.from(today))
+    }
+    var selectedDay by rememberSaveable(stateSaver = LocalDateSaver) { mutableStateOf(today) }
     var drag by remember(month) { mutableFloatStateOf(0f) }
     val appealsByDay = remember(savedAppeals) {
         savedAppeals.groupBy { it.date }.mapValues { (_, items) ->

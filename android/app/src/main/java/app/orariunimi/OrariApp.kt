@@ -47,6 +47,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -54,6 +55,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
@@ -67,6 +69,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import java.io.File
 import java.net.ConnectException
 import java.net.SocketTimeoutException
@@ -99,6 +102,20 @@ data class ExamViewData(
     val offline: Boolean
 )
 private data class ExamSearchMatches(val year: String, val query: String, val items: List<SearchItem>)
+
+private fun removedNoticeEntry(notice: RemovedExamNotice): AppNotificationEntry =
+    AppNotificationEntry(
+        id = notice.id,
+        type = AppNotificationType.EXAM_CHANGE,
+        title = "Appello non più disponibile",
+        message = "${notice.appeal.subjectName}: l’appello del ${notice.appeal.date} non risulta più pubblicato.",
+        timestampMillis = notice.detectedAtMillis,
+        targetDate = notice.appeal.date,
+        targetKey = ExamNotificationEngine.identity(notice.appeal),
+        targetTitle = notice.appeal.subjectName,
+        changes = listOf(NotificationFieldChange(
+            "Stato", "Disponibile", "Non più pubblicato"))
+    )
 
 private enum class RootTab(val index: Int, val title: String) {
     LESSONS(0, "Lezioni"),
@@ -155,7 +172,7 @@ fun OrariApp(
     var examPlannerAppealAvailable by remember { mutableStateOf(true) }
     var examPlannerNote by remember { mutableStateOf("") }
     var examPlannerOpen by remember { mutableStateOf(false) }
-    var examPlannerSavedMode by remember { mutableStateOf(false) }
+    var examPlannerSavedMode by rememberSaveable { mutableStateOf(false) }
     var examQuery by rememberSaveable { mutableStateOf("") }
     var years by remember { mutableStateOf<List<AcademicYear>>(emptyList()) }
     var year by remember { mutableStateOf<AcademicYear?>(null) }
@@ -210,12 +227,50 @@ fun OrariApp(
     var examDiagnostics by remember { mutableStateOf(diagnosticsStore.read(SyncDiagnosticKind.EXAMS)) }
     var checkingLessonDiagnostics by remember { mutableStateOf(false) }
     var checkingExamDiagnostics by remember { mutableStateOf(false) }
-    val dateSaver = remember { Saver<LocalDate, String>(save = { it.toString() }, restore = { LocalDate.parse(it) }) }
-    var week by rememberSaveable(stateSaver = dateSaver) { mutableStateOf(startOfWeek(LocalDate.now())) }
-    var selectedDay by rememberSaveable(stateSaver = dateSaver) { mutableStateOf(LocalDate.now()) }
+    var week by rememberSaveable(stateSaver = LocalDateSaver) { mutableStateOf(startOfWeek(LocalDate.now())) }
+    var selectedDay by rememberSaveable(stateSaver = LocalDateSaver) { mutableStateOf(LocalDate.now()) }
     var updateState by remember { mutableStateOf<AppUpdateState>(AppUpdateState.Idle) }
     var releaseNotes by remember { mutableStateOf(store.cachedReleaseNotes) }
     var pendingInstall by remember { mutableStateOf<File?>(null) }
+    val bookmarkSaver = remember {
+        Saver<NavigationBookmark, String>(save = { it.encode() },
+            restore = { NavigationBookmark.decode(it) ?: NavigationBookmark() })
+    }
+    var navigationBookmark by rememberSaveable(stateSaver = bookmarkSaver) {
+        mutableStateOf(NavigationBookmark())
+    }
+    var restoringNavigation by remember { mutableStateOf(navigationBookmark.hasPage) }
+
+    SideEffect {
+        if (!restoringNavigation) navigationBookmark = NavigationBookmark(
+            course = courseDetail?.let { CourseRoute(it.year, it.course.code) },
+            calendar = calendar?.let { shown -> CalendarRoute(shown.title, shown.year,
+                shown.source?.kind, shown.source?.code.orEmpty(), shown.source?.name.orEmpty(),
+                shown.combinedSubjects != null) },
+            exam = examCourse?.let { shown -> ExamRoute(examCourseYear.orEmpty(), shown.code,
+                shown.name, shown.kind, examWindow, examOpenedFromCourseDetail,
+                examSubject?.sources ?: shown.examSources) },
+            appeal = examPlannerAppeal?.let { AppealRoute(it.courseCode, it.id,
+                examPlannerAppealAvailable) },
+            buildingCode = selectedBuilding?.code,
+            roomCode = selectedRoom?.code,
+            buildingDay = selectedBuilding?.let { buildingDay.toString() },
+            roomDay = selectedRoom?.let { roomDay.toString() },
+            notificationId = notificationDetailEntry?.id,
+            notificationFromCenter = notificationDetailReturnsToCenter,
+            subjectSelection = subjectSelectionTarget?.let {
+                SubjectRoute(it.year, it.item.code, it.item.name)
+            },
+            settings = settings,
+            notificationSettings = notificationSettingsOpen,
+            notifications = notificationsOpen,
+            agenda = agendaOpen,
+            lessonMonth = lessonMonthOpen,
+            examPlanner = examPlannerOpen,
+            examPlannerSavedMode = examPlannerSavedMode,
+            examSearch = examSearchOpen
+        )
+    }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -289,6 +344,7 @@ fun OrariApp(
 
     LaunchedEffect(openSavedRequest) {
         if (openSavedRequest > 0) {
+            restoringNavigation = false
             invalidatePageLoads()
             settings = false
             notificationsOpen = false
@@ -315,6 +371,7 @@ fun OrariApp(
 
     LaunchedEffect(openNotificationsRequest) {
         if (openNotificationsRequest > 0) {
+            restoringNavigation = false
             invalidatePageLoads()
             settings = false
             notificationSettingsOpen = false
@@ -344,6 +401,7 @@ fun OrariApp(
     LaunchedEffect(openNotificationRequest) {
         val entry = openNotificationId?.let { id -> store.notifications().firstOrNull { it.id == id } }
             ?: return@LaunchedEffect
+        restoringNavigation = false
         invalidatePageLoads()
         settings = entry.type == AppNotificationType.APP_UPDATE
         notificationsOpen = false
@@ -1140,7 +1198,161 @@ fun OrariApp(
         subject.name, subject.year, SearchItem(subject.code, subject.name, SearchKind.SUBJECT)
     )
 
+    LaunchedEffect(restoringNavigation) {
+        if (!restoringNavigation) return@LaunchedEffect
+        val bookmark = navigationBookmark
+        try {
+            val routeYear = bookmark.course?.year ?: bookmark.calendar?.year ?: bookmark.exam?.year
+            if (routeYear != null) {
+                selectedYearCode = routeYear
+                year = years.firstOrNull { it.code == routeYear } ?: year
+                entries = emptyMap()
+                entriesAttempted = emptySet()
+            }
+
+            bookmark.course?.let { route ->
+                val complete = withContext(Dispatchers.IO) {
+                    val item = api.entries(SearchKind.COURSE, route.year)
+                        .firstOrNull { it.code == route.code }
+                        ?: throw IllegalStateException("Il corso non è più disponibile.")
+                    api.courseWithTeachings(route.year, item)
+                }
+                if (!restoringNavigation) return@LaunchedEffect
+                courseDetail = CourseDetailData(route.year, complete)
+            }
+
+            bookmark.calendar?.let { route ->
+                val combined = if (route.combined) store.saved() else null
+                val source = when (route.kind) {
+                    SearchKind.COURSE -> courseDetail?.course?.takeIf { it.code == route.code }
+                        ?: withContext(Dispatchers.IO) {
+                            api.entries(SearchKind.COURSE, route.year).firstOrNull { it.code == route.code }
+                        }
+                    SearchKind.TEACHER, SearchKind.SUBJECT ->
+                        SearchItem(route.code, route.name, route.kind)
+                    null -> null
+                }
+                if (!restoringNavigation) return@LaunchedEffect
+                if (route.combined && combined.isNullOrEmpty() || !route.combined && source == null) {
+                    throw IllegalStateException("Il calendario non è più disponibile.")
+                }
+                showCalendar(route.title, route.year, source, combined, openDay = selectedDay)
+                snapshotFlow { calendar != null || !calendarRefreshing }.first { it }
+                if (!restoringNavigation) return@LaunchedEffect
+            }
+
+            bookmark.exam?.let { route ->
+                if (route.kind == SearchKind.SUBJECT) {
+                    val sources = route.sources.ifEmpty {
+                        withContext(Dispatchers.IO) {
+                            api.entries(SearchKind.SUBJECT, route.year)
+                                .firstOrNull { it.code == route.code }?.examSources.orEmpty()
+                        }
+                    }
+                    if (!restoringNavigation) return@LaunchedEffect
+                    showSubjectExams(FollowedExamSubject(route.year, route.code, route.name, sources),
+                        route.window)
+                } else {
+                    showExams(SearchItem(route.code, route.name, SearchKind.COURSE), route.window,
+                        route.fromCourse, route.year)
+                }
+                snapshotFlow { examData?.takeIf { it.courseCode == route.code && it.window == route.window } != null ||
+                    !examRefreshing }.first { it }
+                if (!restoringNavigation) return@LaunchedEffect
+            }
+
+            if (bookmark.examPlanner) {
+                openExamPlanner()
+                examPlannerSavedMode = bookmark.examPlannerSavedMode
+            }
+            bookmark.appeal?.let { route ->
+                val appeal = store.savedExamAppeals().firstOrNull {
+                    it.courseCode == route.courseCode && it.id == route.id
+                } ?: store.removedExamNotices().firstOrNull {
+                    it.appeal.courseCode == route.courseCode && it.appeal.id == route.id
+                }?.appeal ?: examData?.snapshot?.appeals?.firstOrNull {
+                    it.courseCode == route.courseCode && it.id == route.id
+                }
+                if (appeal != null) {
+                    examPlannerAppeal = appeal
+                    examPlannerAppealAvailable = route.available
+                    examPlannerNote = store.examNote(appeal)
+                } else {
+                    error = "Non riesco a ripristinare il dettaglio dell'appello."
+                }
+            }
+
+            bookmark.buildingCode?.let { code ->
+                val rooms = withContext(Dispatchers.IO) { roomApi.catalog() }
+                val building = withContext(Dispatchers.Default) { RoomSearchIndex(rooms).buildings
+                    .firstOrNull { it.code == code } }
+                    ?: throw IllegalStateException("L'edificio non è più disponibile.")
+                if (!restoringNavigation) return@LaunchedEffect
+                tab = RootTab.EXPLORE
+                exploringRooms = true
+                roomCatalog = rooms
+                buildingDay = bookmark.buildingDay?.let { LocalDate.parse(it) } ?: buildingDay
+                selectedBuilding = building
+                bookmark.roomCode?.let { roomCode ->
+                    roomDay = bookmark.roomDay?.let { LocalDate.parse(it) } ?: roomDay
+                    selectedRoom = building.rooms.firstOrNull { it.code == roomCode }
+                    if (selectedRoom == null) error = "L'aula non è più disponibile nell'edificio."
+                }
+            }
+
+            settings = bookmark.settings
+            notificationSettingsOpen = bookmark.notificationSettings
+            notificationsOpen = bookmark.notifications
+            bookmark.notificationId?.let { id ->
+                notificationDetailEntry = store.notifications().firstOrNull { it.id == id }
+                    ?: store.removedExamNotices().firstOrNull { it.id == id }?.let(::removedNoticeEntry)
+                notificationDetailReturnsToCenter = bookmark.notificationFromCenter
+                if (notificationDetailEntry == null && bookmark.notificationFromCenter) {
+                    notificationsOpen = true
+                }
+                if (notificationDetailEntry == null) error = "La notifica non è più disponibile."
+            }
+            agendaOpen = bookmark.agenda && (calendar != null || saved.isNotEmpty())
+            lessonMonthOpen = bookmark.lessonMonth && (calendar != null || saved.isNotEmpty())
+            examSearchOpen = bookmark.examSearch && examCourse == null
+            bookmark.subjectSelection?.let { target ->
+                subjectSelectionTarget = SubjectSelectionTarget(target.year,
+                    SearchItem(target.code, target.name, SearchKind.SUBJECT))
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (cause: Exception) {
+            error = cause.message ?: "Impossibile ripristinare la pagina."
+        } finally {
+            restoringNavigation = false
+        }
+    }
+
     fun goBack() {
+        if (restoringNavigation) {
+            restoringNavigation = false
+            navigationBookmark = NavigationBookmark()
+            invalidatePageLoads()
+            courseDetail = null
+            calendar = null
+            examCourse = null
+            examSubject = null
+            examData = null
+            examPlannerAppeal = null
+            examPlannerOpen = false
+            selectedBuilding = null
+            selectedRoom = null
+            notificationDetailEntry = null
+            notificationsOpen = false
+            notificationSettingsOpen = false
+            settings = false
+            agendaOpen = false
+            lessonMonthOpen = false
+            examSearchOpen = false
+            subjectSelectionTarget = null
+            error = null
+            return
+        }
         if (subjectSelectionTarget != null) {
             subjectSelectionTarget = null
             return
@@ -1201,10 +1413,10 @@ fun OrariApp(
         error = null
     }
 
-    BackHandler(enabled = busy || notificationDetailEntry != null || examPlannerAppeal != null || examPlannerOpen || lessonMonthOpen || calendar != null || courseDetail != null || selectedRoom != null || selectedBuilding != null || examCourse != null || examSearchOpen || subjectSelectionTarget != null || agendaOpen || settings ||
+    BackHandler(enabled = restoringNavigation || busy || notificationDetailEntry != null || examPlannerAppeal != null || examPlannerOpen || lessonMonthOpen || calendar != null || courseDetail != null || selectedRoom != null || selectedBuilding != null || examCourse != null || examSearchOpen || subjectSelectionTarget != null || agendaOpen || settings ||
         notificationsOpen || notificationSettingsOpen) { goBack() }
 
-    val showingRootTab = notificationDetailEntry == null && examPlannerAppeal == null && !examPlannerOpen && !lessonMonthOpen && calendar == null &&
+    val showingRootTab = !restoringNavigation && notificationDetailEntry == null && examPlannerAppeal == null && !examPlannerOpen && !lessonMonthOpen && calendar == null &&
         courseDetail == null && selectedRoom == null && selectedBuilding == null && examCourse == null && !agendaOpen && !settings &&
         !notificationsOpen && !notificationSettingsOpen
     val activeCatalogKind = when {
@@ -1235,6 +1447,7 @@ fun OrariApp(
         else selected.name
     }
     val pageTitle = when {
+        restoringNavigation -> "Ripristino pagina"
         notificationDetailEntry != null -> "Dettagli variazione"
         notificationSettingsOpen -> "Impostazioni notifiche"
         notificationsOpen -> "Notifiche"
@@ -1251,6 +1464,7 @@ fun OrariApp(
         else -> "Orari UNIMI"
     }
     val backTitle = when {
+        restoringNavigation -> tab.title
         notificationDetailEntry != null -> when {
             notificationDetailReturnsToCenter -> "Notifiche"
             examPlannerOpen -> "I miei appelli"
@@ -1363,7 +1577,7 @@ fun OrariApp(
             Column(Modifier.fillMaxSize()) {
                 val lessonsLoading = showingRootTab && tab == RootTab.LESSONS && saved.isNotEmpty() &&
                     (savedScheduleLoading || savedSchedule == null && !savedScheduleAttempted)
-                val loading = catalogLoading || roomCatalogLoading && exploringRooms ||
+                val loading = restoringNavigation || catalogLoading || roomCatalogLoading && exploringRooms ||
                     selectedBuilding != null && buildingPlanningLoading ||
                     selectedRoom != null && roomPlanningLoading || lessonsLoading ||
                     examCourse != null && examRefreshing ||
@@ -1375,6 +1589,7 @@ fun OrariApp(
                     onRetry = if (year == null) {{ yearRetry++ }}
                         else activeCatalogKind?.let { requested -> { retryCatalog(requested) } })
                 when {
+                    restoringNavigation -> AppLoadingState(Modifier.fillMaxSize())
                     notificationDetailEntry != null -> {
                         val entry = notificationDetailEntry!!
                         NotificationChangeDetailsScreen(entry = entry, onOpenTarget = {
@@ -1550,18 +1765,7 @@ fun OrariApp(
                         },
                         onSelectRemoved = { notice ->
                             notificationDetailReturnsToCenter = false
-                            notificationDetailEntry = AppNotificationEntry(
-                                id = notice.id,
-                                type = AppNotificationType.EXAM_CHANGE,
-                                title = "Appello non più disponibile",
-                                message = "${notice.appeal.subjectName}: l’appello del ${notice.appeal.date} non risulta più pubblicato.",
-                                timestampMillis = notice.detectedAtMillis,
-                                targetDate = notice.appeal.date,
-                                targetKey = ExamNotificationEngine.identity(notice.appeal),
-                                targetTitle = notice.appeal.subjectName,
-                                changes = listOf(NotificationFieldChange(
-                                    "Stato", "Disponibile", "Non più pubblicato"))
-                            )
+                            notificationDetailEntry = removedNoticeEntry(notice)
                         },
                         onDismissRemoved = { notice ->
                             store.dismissRemovedExamNotice(notice.id)
@@ -1788,18 +1992,7 @@ fun OrariApp(
                         },
                         onSelectRemoved = { notice ->
                             notificationDetailReturnsToCenter = false
-                            notificationDetailEntry = AppNotificationEntry(
-                                id = notice.id,
-                                type = AppNotificationType.EXAM_CHANGE,
-                                title = "Appello non più disponibile",
-                                message = "${notice.appeal.subjectName}: l’appello del ${notice.appeal.date} non risulta più pubblicato.",
-                                timestampMillis = notice.detectedAtMillis,
-                                targetDate = notice.appeal.date,
-                                targetKey = ExamNotificationEngine.identity(notice.appeal),
-                                targetTitle = notice.appeal.subjectName,
-                                changes = listOf(NotificationFieldChange(
-                                    "Stato", "Disponibile", "Non più pubblicato"))
-                            )
+                            notificationDetailEntry = removedNoticeEntry(notice)
                         },
                         onDismissRemoved = { notice ->
                             store.dismissRemovedExamNotice(notice.id)

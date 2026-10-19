@@ -108,6 +108,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -373,8 +374,10 @@ fun ScheduleAgendaScreen(
     lessons: List<Lesson>?, loading: Boolean, weekend: Boolean, onOpenDay: (LocalDate) -> Unit,
     onRetry: (() -> Unit)? = null
 ) {
-    var range by remember { mutableStateOf(AgendaRange.WEEK) }
-    var anchorDay by remember { mutableStateOf(openingDay(LocalDate.now(), weekend)) }
+    var range by rememberSaveable { mutableStateOf(AgendaRange.WEEK) }
+    var anchorDay by rememberSaveable(stateSaver = LocalDateSaver) {
+        mutableStateOf(openingDay(LocalDate.now(), weekend))
+    }
     val viewport = AgendaViewport(range, anchorDay)
 
     Column(Modifier.fillMaxSize()) {
@@ -1489,8 +1492,11 @@ fun LessonMonthScreen(
     onOpenDay: (LocalDate) -> Unit
 ) {
     val today = LocalDate.now()
-    var month by remember(initialDay) { mutableStateOf(YearMonth.from(initialDay)) }
-    var selectedDay by remember(initialDay, weekend) { mutableStateOf(openingDay(initialDay, weekend)) }
+    var month by rememberSaveable(initialDay.toString(), stateSaver = YearMonthSaver) {
+        mutableStateOf(YearMonth.from(initialDay))
+    }
+    var selectedDay by rememberSaveable(initialDay.toString(), weekend,
+        stateSaver = LocalDateSaver) { mutableStateOf(openingDay(initialDay, weekend)) }
     var drag by remember(month) { mutableFloatStateOf(0f) }
     val lessonsByDay = remember(lessons) {
         lessons.groupBy { it.date }.mapValues { (_, items) -> items.sortedBy { it.start } }

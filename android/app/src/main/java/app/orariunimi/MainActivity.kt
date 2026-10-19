@@ -22,14 +22,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // The ViewModel survives rotation, but is new after process death. A rotated Activity
-        // must not replay its old intent; a fresh process must still honor the launch intent.
+        // A restored task must not replay the intent that originally opened it. A genuinely
+        // different notification intent still takes precedence over the restored page.
         val launchIntentState = ViewModelProvider(this)[LaunchIntentState::class.java]
         if (!launchIntentState.handled) {
-            if (intent.getBooleanExtra(OPEN_SAVED, false)) openSavedRequest.intValue++
-            if (intent.getBooleanExtra(OPEN_NOTIFICATIONS, false)) openNotificationsRequest.intValue++
-            openNotificationId.value = intent.getStringExtra(OPEN_NOTIFICATION_ID)
-            if (openNotificationId.value != null) openNotificationRequest.intValue++
+            if (savedInstanceState?.getString(LAST_LAUNCH_ROUTE) != routeIntentKey(intent)) {
+                if (intent.getBooleanExtra(OPEN_SAVED, false)) openSavedRequest.intValue++
+                if (intent.getBooleanExtra(OPEN_NOTIFICATIONS, false)) openNotificationsRequest.intValue++
+                openNotificationId.value = intent.getStringExtra(OPEN_NOTIFICATION_ID)
+                if (openNotificationId.value != null) openNotificationRequest.intValue++
+            }
             launchIntentState.handled = true
         }
         enableEdgeToEdge()
@@ -61,6 +63,11 @@ class MainActivity : ComponentActivity() {
         super.onStop()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString(LAST_LAUNCH_ROUTE, routeIntentKey(intent))
+        super.onSaveInstanceState(outState)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -70,7 +77,15 @@ class MainActivity : ComponentActivity() {
         if (openNotificationId.value != null) openNotificationRequest.intValue++
     }
 
+    private fun routeIntentKey(intent: Intent): String = listOf(
+        intent.action.orEmpty(), intent.dataString.orEmpty(),
+        intent.getBooleanExtra(OPEN_SAVED, false).toString(),
+        intent.getBooleanExtra(OPEN_NOTIFICATIONS, false).toString(),
+        intent.getStringExtra(OPEN_NOTIFICATION_ID).orEmpty()
+    ).joinToString("|")
+
     companion object {
+        private const val LAST_LAUNCH_ROUTE = "last_launch_route"
         const val OPEN_SAVED = "open_saved"
         const val OPEN_NOTIFICATIONS = "open_notifications"
         const val OPEN_NOTIFICATION_ID = "open_notification_id"
