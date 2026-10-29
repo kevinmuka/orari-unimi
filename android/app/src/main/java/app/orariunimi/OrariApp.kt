@@ -3,8 +3,11 @@ package app.orariunimi
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.provider.CalendarContract
+import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -1665,7 +1668,20 @@ fun OrariApp(
                             setNotificationPreferences(notificationPreferences.copy(reminderMinutes = minutes))
                         },
                         onCheckLessons = { refreshDiagnostics(SyncDiagnosticKind.LESSONS) },
-                        onCheckExams = { refreshDiagnostics(SyncDiagnosticKind.EXAMS) }
+                        onCheckExams = { refreshDiagnostics(SyncDiagnosticKind.EXAMS) },
+                        onOpenAppSettings = {
+                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.parse("package:${context.packageName}"))
+                            runCatching { context.startActivity(intent) }
+                                .onSuccess {
+                                    Toast.makeText(context, "Tocca Batteria, poi Senza restrizioni",
+                                        Toast.LENGTH_LONG).show()
+                                }
+                                .onFailure {
+                                    scope.launch { snackbar.showAppSnackbar(
+                                        "Impossibile aprire le impostazioni dell'app.") }
+                                }
+                        }
                     )
                     notificationsOpen -> NotificationCenterScreen(
                         entries = notificationEntries,

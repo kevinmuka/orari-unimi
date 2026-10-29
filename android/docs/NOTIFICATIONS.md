@@ -46,6 +46,16 @@ piano dell'app richiede inoltre un controllo immediato di tutte le categorie
 abilitate; WorkManager accorpa e sostituisce le richieste immediate omonime per
 evitare controlli simultanei duplicati.
 
+Dalla 1.10.3, **Impostazioni notifiche** suggerisce di scegliere **Senza
+restrizioni** in **Batteria** se gli avvisi arrivano in ritardo. Il pulsante
+apre la pagina delle impostazioni di questa app; da lì si entra in Batteria.
+La voce da cercare è evidenziata nel suggerimento e ricordata all'apertura
+delle impostazioni.
+Il percorso e il nome della voce possono variare secondo il produttore. Questa
+scelta può ridurre i ritardi dovuti ai limiti per il lavoro in background, ma
+non rende esatti i controlli ogni 15 minuti e può aumentare il consumo della
+batteria. L'app non richiede un'esenzione automatica alle ottimizzazioni.
+
 Dalla versione 1.5.4 i recuperi automatici degli orari condividono una finestra
 di freschezza di due minuti: se l'interfaccia o un altro worker hanno appena
 ottenuto gli stessi dati, il controllo riutilizza quella risposta. Gli

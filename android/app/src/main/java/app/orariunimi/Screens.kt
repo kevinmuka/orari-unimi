@@ -118,9 +118,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntOffset
@@ -814,7 +817,8 @@ fun NotificationSettingsScreen(
     onAppUpdates: () -> Unit,
     onReminderMinutes: (Int) -> Unit,
     onCheckLessons: () -> Unit,
-    onCheckExams: () -> Unit
+    onCheckExams: () -> Unit,
+    onOpenAppSettings: () -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp),
@@ -855,6 +859,7 @@ fun NotificationSettingsScreen(
         item { SettingCard(Icons.Outlined.SystemUpdate, "Aggiornamenti dell'app",
             "Avviso silenzioso quando viene pubblicata una nuova versione.",
             notificationPreferences.appUpdates, onAppUpdates) }
+        item { BatterySettingsHint(onOpenAppSettings) }
         item {
             SyncDiagnosticsPanel(
                 lessonState = lessonDiagnostics,
@@ -864,6 +869,31 @@ fun NotificationSettingsScreen(
                 onCheckLessons = onCheckLessons,
                 onCheckExams = onCheckExams
             )
+        }
+    }
+}
+
+@Composable
+private fun BatterySettingsHint(onOpenAppSettings: () -> Unit) {
+    val batteryLabel = MaterialTheme.colorScheme.primary
+    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text("Notifiche in background", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(5.dp))
+            Text(buildAnnotatedString {
+                append("Se gli avvisi tardano, apri ")
+                withStyle(SpanStyle(color = batteryLabel, fontWeight = FontWeight.Bold)) {
+                    append("Batteria")
+                }
+                append(" → Senza restrizioni. Android può comunque ritardarli.")
+            },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onClick = onOpenAppSettings, modifier = Modifier.align(Alignment.End)) {
+                Text("Apri impostazioni dell'app")
+                Spacer(Modifier.width(4.dp))
+                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null)
+            }
         }
     }
 }
