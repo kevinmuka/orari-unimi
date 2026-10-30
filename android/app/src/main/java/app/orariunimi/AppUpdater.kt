@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -18,7 +19,8 @@ data class AppRelease(
     val downloadUrl: String,
     val sha256: String?,
     val versionCode: Int? = null,
-    val notes: String = ""
+    val notes: String = "",
+    val inAppOnly: Boolean = false
 ) {
     val updateKey: String get() = versionCode?.let { "$version:$it" } ?: version
 }
@@ -76,34 +78,57 @@ sealed interface AppUpdateState {
 }
 
 object AppUpdater {
-    private const val latestReleaseUrl =
-        "https://api.github.com/repos/kevinmuka/orari-unimi/releases/latest"
+    private const val releasesUrl =
+        "https://api.github.com/repos/kevinmuka/orari-unimi/releases?per_page=30"
     private const val releaseDownloadPrefix =
         "https://github.com/kevinmuka/orari-unimi/releases/download/"
     private const val maxMetadataBytes = 2 * 1024 * 1024
     private const val maxApkBytes = 100 * 1024 * 1024
 
-    fun latestRelease(): AppRelease {
-        val response = get(latestReleaseUrl, maxMetadataBytes)
-        val json = JSONObject(response.toString(Charsets.UTF_8))
+    fun latestRelease(includeInAppOnly: Boolean): AppRelease =
+        latestAndroidRelease(get(releasesUrl, maxMetadataBytes).toString(Charsets.UTF_8), includeInAppOnly)
+
+    internal fun latestAndroidRelease(response: String, includeInAppOnly: Boolean): AppRelease {
+        val releases = JSONArray(response)
+        return (0 until releases.length()).mapNotNull { index ->
+            releases.optJSONObject(index)?.let(::parseAndroidRelease)
+        }.filter { includeInAppOnly || !it.inAppOnly }
+            .maxWithOrNull(Comparator(::compareReleases))
+            ?: throw IllegalStateException("GitHub non contiene una release Android disponibile.")
+    }
+
+    private fun parseAndroidRelease(json: JSONObject): AppRelease? {
+        if (json.optBoolean("draft") || json.optBoolean("prerelease")) return null
         val tag = json.optString("tag_name")
-        val version = versionFromTag(tag)
-            ?: throw IllegalStateException("La release GitHub non ha una versione valida.")
-        val assets = json.optJSONArray("assets")
-            ?: throw IllegalStateException("La release GitHub non contiene un APK.")
+        val version = versionFromTag(tag) ?: return null
+        val assets = json.optJSONArray("assets") ?: return null
         val asset = (0 until assets.length()).mapNotNull { assets.optJSONObject(it) }
             .firstOrNull { it.optString("name").endsWith(".apk", ignoreCase = true) }
-            ?: throw IllegalStateException("La release GitHub non contiene un APK.")
+            ?: return null
         val downloadUrl = asset.optString("browser_download_url")
-        if (!downloadUrl.startsWith(releaseDownloadPrefix)) {
-            throw IllegalStateException("L'indirizzo dell'aggiornamento non è valido.")
-        }
+        if (!downloadUrl.startsWith("$releaseDownloadPrefix$tag/")) return null
         val digest = asset.optString("digest").takeIf { it.startsWith("sha256:") }
             ?.removePrefix("sha256:")?.lowercase()
         val body = json.optString("body")
         val versionCode = parseReleaseVersionCode(body)
-        return AppRelease(version, tag, downloadUrl, digest, versionCode, body.take(16_000))
+        return AppRelease(version, tag, downloadUrl, digest, versionCode,
+            body.take(16_000), isInAppOnly(body))
     }
+
+    private fun compareReleases(first: AppRelease, second: AppRelease): Int = when {
+        first.versionCode != null && second.versionCode != null ->
+            first.versionCode.compareTo(second.versionCode)
+        isNewer(first.version, second.version) -> 1
+        isNewer(second.version, first.version) -> -1
+        else -> (first.versionCode ?: -1).compareTo(second.versionCode ?: -1)
+    }
+
+    internal fun isInAppOnly(body: String): Boolean = Regex(
+        "<!--\\s*orari-unimi-update:\\s*in-app-only\\s*-->", RegexOption.IGNORE_CASE
+    ).containsMatchIn(body)
+
+    internal fun shouldPostSystemUpdate(release: AppRelease, allowSystemNotification: Boolean): Boolean =
+        allowSystemNotification && !release.inAppOnly
 
     fun isNewer(release: AppRelease, currentVersion: String, currentVersionCode: Int): Boolean =
         release.versionCode?.let { it > currentVersionCode }
@@ -196,7 +221,7 @@ object AppUpdater {
     }
 
     private fun versionFromTag(tag: String): String? =
-        Regex("(?:^|-)v?(\\d+(?:\\.\\d+)+)$").find(tag)?.groupValues?.get(1)
+        Regex("^android-v(\\d+(?:\\.\\d+)+)$").matchEntire(tag)?.groupValues?.get(1)
 
     private fun numericVersion(value: String): List<Int>? {
         if (!Regex("\\d+(?:\\.\\d+)*").matches(value)) return null

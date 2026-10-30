@@ -655,7 +655,10 @@ fun OrariApp(
         scope.launch {
             updateState = AppUpdateState.Checking
             updateState = try {
-                val release = withContext(Dispatchers.IO) { AppUpdater.latestRelease() }
+                val includeInAppOnly = notificationPreferences.enabled && notificationPreferences.appUpdates
+                val release = withContext(Dispatchers.IO) {
+                    AppUpdater.latestRelease(includeInAppOnly)
+                }
                 val latestNotes = release.notes.takeIf { it.isNotBlank() }?.let {
                     ReleaseNotes(release.version, release.versionCode, it)
                 }
@@ -1668,20 +1671,7 @@ fun OrariApp(
                             setNotificationPreferences(notificationPreferences.copy(reminderMinutes = minutes))
                         },
                         onCheckLessons = { refreshDiagnostics(SyncDiagnosticKind.LESSONS) },
-                        onCheckExams = { refreshDiagnostics(SyncDiagnosticKind.EXAMS) },
-                        onOpenAppSettings = {
-                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                Uri.parse("package:${context.packageName}"))
-                            runCatching { context.startActivity(intent) }
-                                .onSuccess {
-                                    Toast.makeText(context, "Tocca Batteria, poi Senza restrizioni",
-                                        Toast.LENGTH_LONG).show()
-                                }
-                                .onFailure {
-                                    scope.launch { snackbar.showAppSnackbar(
-                                        "Impossibile aprire le impostazioni dell'app.") }
-                                }
-                        }
+                        onCheckExams = { refreshDiagnostics(SyncDiagnosticKind.EXAMS) }
                     )
                     notificationsOpen -> NotificationCenterScreen(
                         entries = notificationEntries,
@@ -1733,7 +1723,20 @@ fun OrariApp(
                         onInstallUpdate = ::installUpdate,
                         notificationPreferences = notificationPreferences,
                         onNotificationsEnabled = ::toggleNotifications,
-                        onOpenNotificationSettings = ::openNotificationSettings
+                        onOpenNotificationSettings = ::openNotificationSettings,
+                        onOpenAppSettings = {
+                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.parse("package:${context.packageName}"))
+                            runCatching { context.startActivity(intent) }
+                                .onSuccess {
+                                    Toast.makeText(context, "Tocca Batteria, poi Senza restrizioni",
+                                        Toast.LENGTH_LONG).show()
+                                }
+                                .onFailure {
+                                    scope.launch { snackbar.showAppSnackbar(
+                                        "Impossibile aprire le impostazioni dell'app.") }
+                                }
+                        }
                     )
                     agendaOpen -> ScheduleAgendaScreen(
                         lessons = calendar?.lessons ?: savedSchedule?.lessons,

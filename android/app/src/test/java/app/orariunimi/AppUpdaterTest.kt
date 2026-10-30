@@ -1,5 +1,7 @@
 package app.orariunimi
 
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -37,10 +39,48 @@ class AppUpdaterTest {
     }
 
     @Test
+    fun selectsInAppOnlyReleaseOnlyWhenEnabled() {
+        fun release(tag: String, code: Int, inAppOnly: Boolean) = JSONObject().apply {
+            put("tag_name", tag)
+            put("body", "`versionCode $code`" + if (inAppOnly)
+                "\n<!-- orari-unimi-update: in-app-only -->" else "")
+            put("assets", JSONArray().put(JSONObject().apply {
+                put("name", "orari-unimi.apk")
+                put("browser_download_url",
+                    "https://github.com/kevinmuka/orari-unimi/releases/download/$tag/orari-unimi.apk")
+            }))
+        }
+        val response = JSONArray()
+            .put(release("android-v1.10.3", 53, false))
+            .put(release("v9.0.0", 100, false))
+            .put(release("android-v1.10.4", 54, true))
+            .toString()
+
+        val automatic = AppUpdater.latestAndroidRelease(response, includeInAppOnly = true)
+        assertEquals(54, automatic.versionCode)
+        assertTrue(automatic.inAppOnly)
+        val withoutSilentUpdates = AppUpdater.latestAndroidRelease(response, includeInAppOnly = false)
+        assertEquals(53, withoutSilentUpdates.versionCode)
+        assertFalse(withoutSilentUpdates.inAppOnly)
+    }
+
+    @Test
+    fun silentReleaseNeverPostsToAndroidButNormalReleaseCan() {
+        val normal = AppRelease("1.10.3", "android-v1.10.3", "https://example.test/app.apk", null)
+        val silent = normal.copy(inAppOnly = true)
+        assertTrue(AppUpdater.shouldPostSystemUpdate(normal, allowSystemNotification = true))
+        assertFalse(AppUpdater.shouldPostSystemUpdate(silent, allowSystemNotification = true))
+        assertFalse(AppUpdater.shouldPostSystemUpdate(normal, allowSystemNotification = false))
+        assertTrue(AppUpdater.isInAppOnly("<!-- ORARI-UNIMI-UPDATE: IN-APP-ONLY -->"))
+        assertFalse(AppUpdater.isInAppOnly("Aggiornamento silenzioso"))
+    }
+
+    @Test
     fun showsOnlyReaderFacingReleaseSectionsAndUnwrapsMarkdown() {
         val body = """
             # Android 1.10.0
             `versionCode 47`
+            <!-- orari-unimi-update: in-app-only -->
 
             ## Aule
             - In **Esplora → Aule** si vedono gli edifici e

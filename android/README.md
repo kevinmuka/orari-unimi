@@ -61,7 +61,10 @@ per apertura e scadenza delle iscrizioni; se le date cambiano, i lavori locali
 vengono riprogrammati. Un appello non più pubblicato rimane tra gli avvisi da
 verificare finché l'utente non ne conferma la lettura, anche se elimina la
 notifica. L'app può inoltre ricordare in modo silenzioso la prossima lezione e
-avvisare silenziosamente delle nuove versioni.
+avvisare delle nuove versioni. Con **Aggiornamenti dell'app** attivo, le release
+normali appaiono nel centro notifiche e possono produrre un avviso Android;
+quelle contrassegnate dagli sviluppatori come **solo nell'app** appaiono
+esclusivamente nel centro interno, restando scaricabili dalle Preferenze.
 La campanella nella schermata principale apre lo storico locale, dal quale ogni
 voce può essere eliminata con uno swipe. I controlli vengono richiesti ogni 15
 minuti: quando l'app è aperta aggiornano soltanto lo storico interno, mentre in

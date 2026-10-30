@@ -599,7 +599,8 @@ class AppUpdateNotificationWorker(context: Context, parameters: WorkerParameters
         val store = LocalStore(applicationContext)
         val preferences = store.notificationPreferences
         if (!preferences.enabled || !preferences.appUpdates) return Result.success()
-        val release = try { AppUpdater.latestRelease() } catch (_: Exception) { return Result.retry() }
+        val release = try { AppUpdater.latestRelease(includeInAppOnly = true) }
+            catch (_: Exception) { return Result.retry() }
         if (!AppUpdater.isNewer(release, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE) ||
             store.lastUpdateNotificationVersion == release.updateKey) return Result.success()
         val sameVisibleVersion = release.version == BuildConfig.VERSION_NAME
@@ -612,7 +613,8 @@ class AppUpdateNotificationWorker(context: Context, parameters: WorkerParameters
         )
         store.lastUpdateNotificationVersion = release.updateKey
         if (store.addNotification(entry)) {
-            NotificationPublisher.post(applicationContext, entry, allowSystemNotification)
+            NotificationPublisher.post(applicationContext, entry,
+                AppUpdater.shouldPostSystemUpdate(release, allowSystemNotification))
         }
         return Result.success()
     }

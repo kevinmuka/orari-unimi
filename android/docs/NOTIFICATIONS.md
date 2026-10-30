@@ -46,9 +46,10 @@ piano dell'app richiede inoltre un controllo immediato di tutte le categorie
 abilitate; WorkManager accorpa e sostituisce le richieste immediate omonime per
 evitare controlli simultanei duplicati.
 
-Dalla 1.10.3, **Impostazioni notifiche** suggerisce di scegliere **Senza
-restrizioni** in **Batteria** se gli avvisi arrivano in ritardo. Il pulsante
-apre la pagina delle impostazioni di questa app; da lì si entra in Batteria.
+Dalla 1.10.3, nelle **Preferenze**, subito sotto **Impostazioni notifiche**,
+una pillola distinta suggerisce di scegliere **Senza restrizioni** in
+**Batteria** se gli avvisi arrivano in ritardo. Il pulsante apre la pagina
+delle impostazioni di questa app; da lì si entra in Batteria.
 La voce da cercare è evidenziata nel suggerimento e ricordata all'apertura
 delle impostazioni.
 Il percorso e il nome della voce possono variare secondo il produttore. Questa
@@ -191,3 +192,34 @@ il marcatore seguente, aggiornato allo stesso valore di `app/build.gradle.kts`:
 
 La deduplicazione delle notifiche usa la coppia `versionName:versionCode`, quindi
 due build diverse della stessa versione possono generare due avvisi distinti.
+
+## Release solo nell'app
+
+L'interruttore esistente **Aggiornamenti dell'app** governa gli avvisi
+automatici. Quando è attivo, una release normale viene aggiunta al centro
+notifiche dell'app e, se il controllo avviene in background, anche al canale
+Android degli aggiornamenti. Una release contrassegnata come **solo nell'app**
+entra nel centro notifiche, ma non viene mai pubblicata nel sistema Android.
+Se l'interruttore o quello generale delle notifiche è spento, non viene creato
+nessun avviso automatico. Il controllo manuale nelle Preferenze continua a
+mostrare le release normali; include quelle solo nell'app soltanto quando gli
+avvisi degli aggiornamenti sono abilitati. Toccando l'avviso interno si aprono
+le Preferenze, dove si può scaricare e installare l'APK come per ogni altra
+versione.
+
+Per pubblicare una release solo nell'app, aggiungere alle note GitHub il
+marcatore esatto:
+
+```html
+<!-- orari-unimi-update: in-app-only -->
+```
+
+Pubblicarla inoltre con `gh release create ... --latest=false`. Le vecchie
+versioni leggono soltanto l'endpoint GitHub `/releases/latest`: se la release
+diventasse **Latest**, potrebbero inviare comunque una notifica Android perché
+non conoscono il marcatore. Dalla build 53 il client consulta invece l'elenco
+delle release Android pubblicate, seleziona la build più recente e usa il
+marcatore per decidere il canale. Le release normali non devono contenere il
+marcatore e vanno pubblicate come **Latest**. Verificare entrambe le proprietà
+dopo la pubblicazione. Il `versionCode` deve sempre crescere; la release deve
+contenere l'APK firmato con il certificato abituale e il suo checksum.

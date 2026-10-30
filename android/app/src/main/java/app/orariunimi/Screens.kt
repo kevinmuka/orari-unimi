@@ -689,7 +689,8 @@ fun SettingsScreen(
     onInstallUpdate: (File) -> Unit,
     notificationPreferences: NotificationPreferences,
     onNotificationsEnabled: () -> Unit,
-    onOpenNotificationSettings: () -> Unit
+    onOpenNotificationSettings: () -> Unit,
+    onOpenAppSettings: () -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp),
@@ -716,6 +717,7 @@ fun SettingsScreen(
         if (notificationPreferences.enabled) {
             item { NavigationSettingCard(Icons.Outlined.NotificationsActive, "Impostazioni notifiche",
                 "Scegli lezioni, appelli, promemoria e aggiornamenti.", onOpenNotificationSettings) }
+            item { BatterySettingsHint(onOpenAppSettings) }
         }
         item {
             Spacer(Modifier.height(6.dp))
@@ -817,8 +819,7 @@ fun NotificationSettingsScreen(
     onAppUpdates: () -> Unit,
     onReminderMinutes: (Int) -> Unit,
     onCheckLessons: () -> Unit,
-    onCheckExams: () -> Unit,
-    onOpenAppSettings: () -> Unit
+    onCheckExams: () -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp),
@@ -857,9 +858,8 @@ fun NotificationSettingsScreen(
             )
         }
         item { SettingCard(Icons.Outlined.SystemUpdate, "Aggiornamenti dell'app",
-            "Avviso silenzioso quando viene pubblicata una nuova versione.",
+            "Avvisa delle nuove versioni. Quelle segnate come silenziose appaiono solo nell'app.",
             notificationPreferences.appUpdates, onAppUpdates) }
-        item { BatterySettingsHint(onOpenAppSettings) }
         item {
             SyncDiagnosticsPanel(
                 lessonState = lessonDiagnostics,
@@ -875,21 +875,28 @@ fun NotificationSettingsScreen(
 
 @Composable
 private fun BatterySettingsHint(onOpenAppSettings: () -> Unit) {
-    val batteryLabel = MaterialTheme.colorScheme.primary
-    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+    val textColor = MaterialTheme.colorScheme.onTertiaryContainer
+    Surface(shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.65f),
+        border = BorderStroke(1.dp, textColor.copy(alpha = 0.18f))) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text("Notifiche in background", style = MaterialTheme.typography.titleSmall)
+            Text("SUGGERIMENTO", style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold, color = textColor.copy(alpha = 0.75f))
+            Spacer(Modifier.height(4.dp))
+            Text("Notifiche in background", style = MaterialTheme.typography.titleSmall,
+                color = textColor)
             Spacer(Modifier.height(5.dp))
             Text(buildAnnotatedString {
                 append("Se gli avvisi tardano, apri ")
-                withStyle(SpanStyle(color = batteryLabel, fontWeight = FontWeight.Bold)) {
+                withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
                     append("Batteria")
                 }
                 append(" → Senza restrizioni. Android può comunque ritardarli.")
             },
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(onClick = onOpenAppSettings, modifier = Modifier.align(Alignment.End)) {
+                color = textColor)
+            TextButton(onClick = onOpenAppSettings, modifier = Modifier.align(Alignment.End),
+                colors = ButtonDefaults.textButtonColors(contentColor = textColor)) {
                 Text("Apri impostazioni dell'app")
                 Spacer(Modifier.width(4.dp))
                 Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null)
